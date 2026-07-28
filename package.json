@@ -1,6 +1,6 @@
 {
   "name": "conduit",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "private": true,
   "author": "ExcaliburAU",
   "description": "Conduit — lean themeable Matrix desktop client with plugins",
