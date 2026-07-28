@@ -1,0 +1,48 @@
+{
+  "id": "bundled-reactions",
+  "name": "Reactions",
+  "source": "bundled",
+  "dirName": "reactions",
+  "stickers": [
+    {
+      "id": "reactions-thumbsup",
+      "fileName": "00-thumbsup.svg",
+      "emoji": "\ud83d\udc4d"
+    },
+    {
+      "id": "reactions-heart",
+      "fileName": "01-heart.svg",
+      "emoji": "\u2764\ufe0f"
+    },
+    {
+      "id": "reactions-fire",
+      "fileName": "02-fire.svg",
+      "emoji": "\ud83d\udd25"
+    },
+    {
+      "id": "reactions-clap",
+      "fileName": "03-clap.svg",
+      "emoji": "\ud83d\udc4f"
+    },
+    {
+      "id": "reactions-hundred",
+      "fileName": "04-hundred.svg",
+      "emoji": "\ud83d\udcaf"
+    },
+    {
+      "id": "reactions-eyes",
+      "fileName": "05-eyes.svg",
+      "emoji": "\ud83d\udc40"
+    },
+    {
+      "id": "reactions-wave",
+      "fileName": "06-wave.svg",
+      "emoji": "\ud83d\udc4b"
+    },
+    {
+      "id": "reactions-think",
+      "fileName": "07-think.svg",
+      "emoji": "\ud83e\udd14"
+    }
+  ]
+}

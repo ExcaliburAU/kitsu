@@ -1,0 +1,90 @@
+{
+  "name": "relay",
+  "version": "0.1.0",
+  "private": true,
+  "author": "ExcaliburAU",
+  "description": "Relay — lean themeable Matrix desktop client with plugins",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "desktop": "electron .",
+    "desktop:start": "electron .",
+    "build:icons": "python scripts/generate-icons.py",
+    "build:markdown": "node scripts/build-markdown.mjs",
+    "build:livekit": "node scripts/build-livekit.mjs",
+    "build:vendor": "node scripts/build-markdown.mjs && node scripts/build-livekit.mjs",
+    "postinstall": "node scripts/build-markdown.mjs && node scripts/build-livekit.mjs",
+    "dist:linux": "electron-builder --linux AppImage",
+    "dist:win": "electron-builder --win nsis",
+    "dist:all": "electron-builder --win nsis --linux AppImage"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "livekit-client": "^2.20.0",
+    "matrix-js-sdk": "^37.5.0",
+    "node-indexeddb": "^6.0.3",
+    "prismjs": "^1.30.0",
+    "rehype-parse": "^9.0.1",
+    "rehype-sanitize": "^6.0.0",
+    "rehype-stringify": "^10.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "remark-rehype": "^11.1.2",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "electron": "^32.3.2",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.1"
+  },
+  "build": {
+    "appId": "dev.relay.app",
+    "productName": "Relay",
+    "copyright": "Copyright © ExcaliburAU",
+    "icon": "build/icon.png",
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "src/**/*",
+      "assets/**/*",
+      "plugins/**/*",
+      "server.js",
+      "package.json",
+      "README.md",
+      "node_modules/**/*"
+    ],
+    "asarUnpack": [
+      "**/*.node",
+      "**/classic-level/**",
+      "**/node-gyp-build/**"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "artifactName": "Relay-${version}.${ext}",
+      "target": [
+        "AppImage"
+      ],
+      "category": "Network"
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "Relay-Setup-${version}.${ext}",
+      "verifyUpdateCodeSignature": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    }
+  }
+}

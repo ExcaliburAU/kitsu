@@ -1,0 +1,2321 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relay</title>
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
+    <link rel="apple-touch-icon" href="/icon.png" />
+    <script>
+      (function () {
+        try {
+          var legacy = { crimson: 1, hacker: 1 };
+          var builtins = { light: 1, dark: 1, midnight: 1 };
+          var t = localStorage.getItem('relay.theme') || 'dark';
+          if (!/^[a-z0-9-]+$/i.test(t) || legacy[t]) {
+            t = 'dark';
+            try {
+              localStorage.setItem('relay.theme', 'dark');
+              localStorage.setItem('relay.theme-scheme', 'dark');
+            } catch (_) {}
+          }
+          document.documentElement.setAttribute('data-theme', t);
+
+          var scheme = localStorage.getItem('relay.theme-scheme');
+          var isLight = scheme === 'light' || (!scheme && t === 'light');
+          document.documentElement.style.colorScheme = isLight ? 'light' : 'dark';
+          document.documentElement.classList.add(isLight ? 'theme-scheme-light' : 'theme-scheme-dark');
+
+          if (!builtins[t]) {
+            var css = localStorage.getItem('relay.theme-css:' + t);
+            if (css && css.trim()) {
+              var style = document.createElement('style');
+              style.id = 'remote-theme-boot';
+              style.textContent = css;
+              document.documentElement.appendChild(style);
+            }
+          }
+
+          var twitterEmoji = localStorage.getItem('relay.twitterEmoji');
+          if (twitterEmoji == null || twitterEmoji === '1' || twitterEmoji === 'true') {
+            document.documentElement.classList.add('twitter-emoji');
+          }
+
+          var textSize = localStorage.getItem('relay.textSize') || 'normal';
+          var scales = { small: '0.875', normal: '1', large: '1.125', xlarge: '1.25' };
+          document.documentElement.style.setProperty('--app-text-scale', scales[textSize] || '1');
+          document.documentElement.dataset.textSize = scales[textSize] ? textSize : 'normal';
+
+          var langPref = localStorage.getItem('relay.language') || 'system';
+          var lang = langPref;
+          if (!lang || lang === 'system') {
+            lang = (navigator.language || 'en').split('-')[0];
+            if (lang === 'zh') lang = 'zh-CN';
+          }
+          document.documentElement.lang = lang || 'en';
+        } catch (_) {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.documentElement.classList.add('theme-scheme-dark');
+          document.documentElement.classList.add('twitter-emoji');
+          document.documentElement.style.setProperty('--app-text-scale', '1');
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/themes.css" />
+  </head>
+  <body>
+    <div id="app">
+      <main id="loginView" class="login-view">
+        <section class="login-panel">
+          <div class="login-brand">
+            <img class="brand-mark brand-mark--logo" src="/icon.svg" alt="" width="40" height="40" />
+            <h1>Relay</h1>
+          </div>
+          <p class="lede" data-i18n="login.lede">Lean Matrix client. Log into your Synapse (or any homeserver).</p>
+          <form id="loginForm">
+            <label>
+              <span data-i18n="login.homeserver">Homeserver</span>
+              <input
+                id="homeserver"
+                name="homeserver"
+                type="text"
+                placeholder="exau.dev or https://matrix.example.com"
+                autocomplete="url"
+                spellcheck="false"
+                required
+              />
+            </label>
+            <label>
+              <span data-i18n="login.username">Username</span>
+              <input
+                id="user"
+                name="user"
+                type="text"
+                placeholder="@you:example.com or localpart"
+                autocomplete="username"
+                required
+              />
+            </label>
+            <label>
+              <span data-i18n="login.password">Password</span>
+              <input
+                id="password"
+                name="password"
+                type="password"
+                autocomplete="current-password"
+                required
+              />
+            </label>
+            <button type="submit" id="loginBtn" data-i18n="login.submit">Sign in</button>
+            <p id="loginError" class="error" hidden></p>
+          </form>
+        </section>
+      </main>
+
+      <main id="chatView" class="chat-view" hidden>
+        <nav class="workspace-rail" id="workspaceRail" aria-label="Spaces">
+          <div class="workspace-rail-stack workspace-rail-stack--dm" aria-label="Direct messages">
+            <button
+              type="button"
+              class="workspace-rail-btn workspace-rail-btn--home is-active"
+              data-space="dms"
+              title="Direct messages"
+              aria-label="Direct messages"
+            >
+              <span class="workspace-rail-orb workspace-rail-orb--home" aria-hidden="true">
+                <svg class="rail-home-icon" viewBox="0 0 24 24" focusable="false">
+                  <path
+                    class="rail-home-icon__wave"
+                    d="M15.2 3.6a9.2 9.2 0 0 1 5.2 5.2"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    class="rail-home-icon__wave"
+                    d="M14.1 5.9a5.8 5.8 0 0 1 3.5 3.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    opacity="0.75"
+                  />
+                  <path
+                    d="M4.1 18.7c-.3-6.4 4-12.5 10.4-13.4 1.1-.2 1.85.95 1.15 1.85C13.2 10.1 10.4 14 5.9 16.9c-1 .7-2 1.2-1.8 1.8z"
+                    fill="currentColor"
+                  />
+                  <path
+                    d="M11.1 9.1 16.2 5.5"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.9"
+                    stroke-linecap="round"
+                  />
+                  <circle cx="17" cy="5" r="1.65" fill="currentColor" />
+                  <path
+                    d="M6.4 17.3 9 21h3.4"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.9"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+          </div>
+
+          <div class="workspace-rail-divider" aria-hidden="true"></div>
+
+          <div class="workspace-rail-main" aria-label="Spaces">
+            <div id="spaceRailList" class="workspace-rail-spaces"></div>
+            <div class="workspace-rail-divider workspace-rail-divider--add" aria-hidden="true"></div>
+            <button
+              type="button"
+              id="railAddBtn"
+              class="workspace-rail-btn workspace-rail-btn--add"
+              title="Add space"
+              aria-label="Add space"
+              aria-haspopup="menu"
+              aria-expanded="false"
+            >
+              <span class="workspace-rail-orb workspace-rail-orb--add" aria-hidden="true">
+                <svg class="workspace-rail-plus ui-icon ui-icon--stroke" viewBox="0 0 24 24" focusable="false">
+                  <path d="M12 5v14M5 12h14"/>
+                </svg>
+              </span>
+            </button>
+            <div class="workspace-rail-spacer" aria-hidden="true"></div>
+          </div>
+
+          <div class="workspace-rail-footer">
+            <div class="workspace-rail-divider" aria-hidden="true"></div>
+            <div class="workspace-rail-stack workspace-rail-stack--tools" aria-label="Search and account">
+              <button
+                type="button"
+                id="railSearchBtn"
+                class="workspace-rail-btn workspace-rail-btn--search"
+                title="Search (Ctrl+K)"
+                aria-label="Search (Ctrl+K)"
+              >
+                <span class="workspace-rail-orb workspace-rail-orb--tool" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                    <circle cx="11" cy="11" r="6.5"/>
+                    <path d="m16.2 16.2 4.3 4.3"/>
+                  </svg>
+                </span>
+              </button>
+              <button
+                type="button"
+                id="railSecurityBtn"
+                class="workspace-rail-btn workspace-rail-btn--security"
+                title="Devices &amp; security"
+                aria-label="Devices and security"
+                hidden
+              >
+                <span class="workspace-rail-orb workspace-rail-orb--security" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" focusable="false">
+                    <path d="M12 3 5 6v5c0 4.5 2.9 8.2 7 9.5 4.1-1.3 7-5 7-9.5V6l-7-3z"/>
+                    <circle cx="12" cy="10" r="2.2"/>
+                    <path d="M9.6 14.2c.7-.7 1.5-1 2.4-1s1.7.3 2.4 1"/>
+                  </svg>
+                </span>
+                <span id="railSecurityBadge" class="workspace-rail-badge" hidden>0</span>
+              </button>
+              <button
+                type="button"
+                id="showHiddenSpacesBtn"
+                class="workspace-rail-btn workspace-rail-btn--hidden"
+                title="Show hidden spaces"
+                aria-label="Show hidden spaces"
+                hidden
+              >
+                <span class="workspace-rail-orb workspace-rail-orb--hidden" aria-hidden="true">H</span>
+              </button>
+              <button
+                type="button"
+                id="railAccountBtn"
+                class="workspace-rail-btn workspace-rail-btn--account"
+                title="Settings"
+                aria-label="Settings"
+                hidden
+              >
+                <span id="railAccountOrb" class="workspace-rail-orb workspace-rail-orb--account" aria-hidden="true">?</span>
+              </button>
+            </div>
+          </div>
+        </nav>
+
+        <dialog id="quickSwitcher" class="quick-switcher" aria-label="Quick switcher">
+          <div class="quick-switcher-card">
+            <label class="quick-switcher-search" for="quickSwitcherInput">
+              <svg class="ui-icon ui-icon--sm ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5"/>
+                <path d="m16.2 16.2 4.3 4.3"/>
+              </svg>
+              <input
+                id="quickSwitcherInput"
+                type="search"
+                placeholder="Search"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+            <div
+              id="quickSwitcherResults"
+              class="quick-switcher-results"
+              role="listbox"
+              aria-label="Search results"
+            ></div>
+            <footer class="quick-switcher-footer">
+              Type <strong>#</strong> for rooms, <strong>@</strong> for DMs and <strong>*</strong> for spaces.
+              Hotkey: <kbd>Ctrl</kbd> + <kbd>k</kbd>
+            </footer>
+          </div>
+        </dialog>
+
+        <div id="accountMenu" class="space-menu account-menu" hidden role="menu">
+          <div class="account-menu-head">
+            <strong id="accountMenuName">Account</strong>
+            <span id="accountMenuId" class="settings-muted"></span>
+          </div>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item" data-account-action="profile" role="menuitem">
+            <span>View profile</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 19.5c.8-3.2 3.4-5 7-5s6.2 1.8 7 5"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-account-action="settings" role="menuitem">
+            <span>Settings</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item space-menu-item--danger" data-account-action="logout" role="menuitem">
+            <span>Log out</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <div id="railAddMenu" class="space-menu rail-add-menu" hidden role="menu">
+          <button type="button" class="rail-add-menu-item" data-rail-add="create-space" role="menuitem">
+            <span class="rail-add-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+            </span>
+            <span class="rail-add-menu-copy">
+              <strong>Create Space</strong>
+              <span>Build a space for your community.</span>
+            </span>
+          </button>
+          <button type="button" class="rail-add-menu-item" data-rail-add="join-address" role="menuitem">
+            <span class="rail-add-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13 19"/></svg>
+            </span>
+            <span class="rail-add-menu-copy">
+              <strong>Join with Address</strong>
+              <span>Become a part of existing community.</span>
+            </span>
+          </button>
+        </div>
+
+        <dialog id="createSpaceDialog" class="space-dialog create-room-dialog">
+          <form id="createSpaceForm" class="space-dialog-card create-room-form">
+            <header class="create-room-head create-space-head">
+              <div class="create-space-brand" aria-hidden="true">
+                <svg class="create-space-brand-icon" viewBox="0 0 48 40" focusable="false">
+                  <path fill="currentColor" opacity="0.9" d="M18 6h14l7 12-7 12H18L11 18z"/>
+                  <path fill="currentColor" opacity="0.55" d="M4 18h14l7 12-7 12H4l-7-12z" transform="translate(7 -6)"/>
+                  <path fill="currentColor" opacity="0.7" d="M28 18h14l7 12-7 12H28l-7-12z" transform="translate(-7 -6)"/>
+                </svg>
+              </div>
+              <div class="create-space-head-copy">
+                <h3>Create Space</h3>
+                <p class="space-dialog-topic">Build a space for your community.</p>
+              </div>
+              <button type="button" id="createSpaceCancel" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+
+            <div class="create-room-section">
+              <div class="create-room-section-label">Access</div>
+              <div class="create-room-access" role="radiogroup" aria-label="Access" id="createSpaceAccessGroup">
+                <label class="create-room-access-card is-selected">
+                  <input type="radio" name="createSpaceAccess" value="private" checked />
+                  <span class="create-room-access-icon" aria-hidden="true">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                  </span>
+                  <span class="create-room-access-copy">
+                    <strong>Private</strong>
+                    <small>Only people with invite can join.</small>
+                  </span>
+                  <span class="create-room-access-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="create-room-access-card">
+                  <input type="radio" name="createSpaceAccess" value="public" />
+                  <span class="create-room-access-icon" aria-hidden="true">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                  </span>
+                  <span class="create-room-access-copy">
+                    <strong>Public</strong>
+                    <small>Anyone with the address can join.</small>
+                  </span>
+                  <span class="create-room-access-check" aria-hidden="true">✓</span>
+                </label>
+              </div>
+            </div>
+
+            <div class="create-room-section create-space-type-row">
+              <div>
+                <div class="create-room-section-label">Type</div>
+                <p class="settings-muted create-space-type-hint">Space Type. Choose standard space navigation or forum-style space behavior.</p>
+              </div>
+              <div class="create-space-type-menu">
+                <button type="button" id="createSpaceTypeBtn" class="create-space-type-btn" aria-haspopup="listbox" aria-expanded="false">
+                  <span id="createSpaceTypeLabel">Space</span>
+                  <span aria-hidden="true">▾</span>
+                </button>
+                <div id="createSpaceTypeMenu" class="create-space-type-pop" role="listbox" hidden>
+                  <button type="button" role="option" data-space-type="space" class="is-selected">Space</button>
+                  <button type="button" role="option" data-space-type="forum">Forum Space</button>
+                </div>
+                <input type="hidden" id="createSpaceType" value="space" />
+              </div>
+            </div>
+
+            <label class="create-room-field">
+              <span>Name</span>
+              <span class="create-room-name-wrap">
+                <span id="createSpaceNamePrefix" class="create-room-name-prefix" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                </span>
+                <input id="createSpaceName" type="text" placeholder="My community" autocomplete="off" required />
+              </span>
+            </label>
+            <label class="create-room-field">
+              <span>Topic <span class="settings-muted">(Optional)</span></span>
+              <textarea id="createSpaceTopic" rows="3" placeholder="What is this space about?"></textarea>
+            </label>
+
+            <div class="create-room-section">
+              <div class="create-room-options-head">
+                <span class="create-room-section-label">Options</span>
+                <button type="button" id="createSpaceAdvanceToggle" class="create-room-advance-toggle">
+                  Advance Options
+                  <span aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div id="createSpaceAdvanceOptions" class="create-room-advance" hidden>
+                <label class="create-room-option">
+                  <span class="create-room-option-copy">
+                    <strong>Allow Federation</strong>
+                    <small>Users from other servers can join.</small>
+                  </span>
+                  <input id="createSpaceFederation" type="checkbox" class="create-room-switch-input" checked />
+                  <span class="create-room-switch" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+
+            <p id="createSpaceError" class="space-dialog-error" hidden></p>
+            <button type="submit" id="createSpaceSubmit" class="create-room-submit">Create</button>
+          </form>
+        </dialog>
+
+        <dialog id="createChildDialog" class="space-dialog create-room-dialog">
+          <form id="createChildForm" class="space-dialog-card create-room-form">
+            <header class="create-room-head">
+              <h3 id="createChildTitle">New Room</h3>
+              <button type="button" id="createChildCancel" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <p id="createChildLede" class="space-dialog-topic" hidden>Create a room in this space.</p>
+            <input type="hidden" id="createChildParentId" value="" />
+            <input type="hidden" id="createChildKind" value="room" />
+
+            <div id="createChildAccessBlock" class="create-room-section">
+              <div class="create-room-section-label">Access</div>
+              <div class="create-room-access" role="radiogroup" aria-label="Access">
+                <label class="create-room-access-card is-selected">
+                  <input type="radio" name="createChildAccess" value="restricted" checked />
+                  <span class="create-room-access-icon" aria-hidden="true">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 4l-2 16M16 4l-2 16"/></svg>
+                  </span>
+                  <span class="create-room-access-copy">
+                    <strong>Restricted</strong>
+                    <small>Only member of parent space can join.</small>
+                  </span>
+                  <span class="create-room-access-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="create-room-access-card">
+                  <input type="radio" name="createChildAccess" value="private" />
+                  <span class="create-room-access-icon" aria-hidden="true">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                  </span>
+                  <span class="create-room-access-copy">
+                    <strong>Private</strong>
+                    <small>Only people with invite can join.</small>
+                  </span>
+                  <span class="create-room-access-check" aria-hidden="true">✓</span>
+                </label>
+                <label class="create-room-access-card">
+                  <input type="radio" name="createChildAccess" value="public" />
+                  <span class="create-room-access-icon" aria-hidden="true">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg>
+                  </span>
+                  <span class="create-room-access-copy">
+                    <strong>Public</strong>
+                    <small>Anyone with the address can join.</small>
+                  </span>
+                  <span class="create-room-access-check" aria-hidden="true">✓</span>
+                </label>
+              </div>
+            </div>
+
+            <label class="create-room-field">
+              <span>Name</span>
+              <span class="create-room-name-wrap">
+                <span id="createChildNamePrefix" class="create-room-name-prefix" aria-hidden="true">#</span>
+                <input id="createChildName" type="text" placeholder="general" autocomplete="off" required />
+              </span>
+            </label>
+            <label class="create-room-field">
+              <span>Topic <span class="settings-muted">(Optional)</span></span>
+              <textarea id="createChildTopic" rows="3" placeholder="What is this about?"></textarea>
+            </label>
+
+            <div id="createChildAliasBlock" class="create-room-field" hidden>
+              <label>
+                <span>Address <span class="settings-muted">(optional)</span></span>
+                <input id="createChildAlias" type="text" placeholder="room-alias" autocomplete="off" />
+              </label>
+            </div>
+
+            <div id="createChildOptionsBlock" class="create-room-section">
+              <div class="create-room-options-head">
+                <span class="create-room-section-label">Options</span>
+                <button type="button" id="createChildAdvanceToggle" class="create-room-advance-toggle">
+                  Advance Options
+                  <span aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div class="create-room-options">
+                <label id="createChildEncryptionRow" class="create-room-option">
+                  <span class="create-room-option-copy">
+                    <strong>End-to-End Encryption</strong>
+                    <small>Once enabled, it can't be disabled after the room is created.</small>
+                  </span>
+                  <input id="createChildEncryption" type="checkbox" class="create-room-switch-input" />
+                  <span class="create-room-switch" aria-hidden="true"></span>
+                </label>
+                <label class="create-room-option">
+                  <span class="create-room-option-copy">
+                    <strong>Forum Layout</strong>
+                    <small>Creates with <code>m.forum</code> so Paarrot can apply forum UI.</small>
+                  </span>
+                  <input id="createChildForum" type="checkbox" class="create-room-switch-input" />
+                  <span class="create-room-switch" aria-hidden="true"></span>
+                </label>
+                <div id="createChildAdvanceOptions" class="create-room-advance" hidden>
+                  <label id="createChildKnockRow" class="create-room-option">
+                    <span class="create-room-option-copy">
+                      <strong>Knock to Join</strong>
+                      <small>Anyone can request to join this room.</small>
+                    </span>
+                    <input id="createChildKnock" type="checkbox" class="create-room-switch-input" />
+                    <span class="create-room-switch" aria-hidden="true"></span>
+                  </label>
+                </div>
+                <label class="create-room-option">
+                  <span class="create-room-option-copy">
+                    <strong>Allow Federation</strong>
+                    <small>Users from other servers can join.</small>
+                  </span>
+                  <input id="createChildFederation" type="checkbox" class="create-room-switch-input" checked />
+                  <span class="create-room-switch" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+
+            <p id="createChildError" class="space-dialog-error" hidden></p>
+            <button type="submit" id="createChildSubmit" class="create-room-submit">Create</button>
+          </form>
+        </dialog>
+
+        <div id="spaceContextMenu" class="space-menu" hidden role="menu">
+          <button type="button" class="space-menu-item" data-action="mark-read" role="menuitem">
+            <span>Mark as Read</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="m4 12 4 4L16 6"/><path d="m10 12 4 4 8-10"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-action="hide" role="menuitem">
+            <span>Hide Space</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 3l18 18"/><path d="M10.6 10.6a2 2 0 1 0 2.8 2.8"/><path d="M9.9 5.1A10 10 0 0 1 12 5c5 0 9.3 3.1 11 7-.5 1.2-1.2 2.3-2.1 3.2M6.1 6.1C4.6 7.3 3.4 8.9 2.5 12c1.7 3.9 6 7 11.5 7 1.4 0 2.7-.2 3.9-.6"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item" data-action="new-folder" role="menuitem">
+            <span>New Folder</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5v-9z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-action="add-to-folder" role="menuitem">
+            <span>Add to Folder…</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5v-9z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-action="remove-from-folder" role="menuitem" hidden>
+            <span>Remove from Folder</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5v-9z"/><path d="M9.5 13.5h5"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item" data-action="invite" role="menuitem">
+            <span>Invite</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19.5c.7-2.8 2.9-4.5 6-4.5s5.3 1.7 6 4.5"/><path d="M19 8v6M16 11h6"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-action="copy-link" role="menuitem">
+            <span>Copy Link</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-action="settings" role="menuitem">
+            <span>Space Settings</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item space-menu-item--danger" data-action="leave" role="menuitem">
+            <span>Leave Space</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <div id="folderContextMenu" class="space-menu" hidden role="menu">
+          <button type="button" class="space-menu-item" data-folder-action="rename" role="menuitem">
+            <span>Rename Folder</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-folder-action="toggle" role="menuitem">
+            <span>Collapse Folder</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="m6 14 6-6 6 6"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item space-menu-item--danger" data-folder-action="ungroup" role="menuitem">
+            <span>Ungroup Folder</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6H9l2 2h8.5A1.5 1.5 0 0 1 21 9.5v7A1.5 1.5 0 0 1 19.5 18h-15A1.5 1.5 0 0 1 3 16.5v-9z"/><path d="m9 12 6 0"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <dialog id="spaceSettingsDialog" class="space-dialog">
+          <form method="dialog" id="spaceSettingsForm" class="space-dialog-card">
+            <h3 id="spaceSettingsTitle">Space Settings</h3>
+            <p id="spaceSettingsTopic" class="space-dialog-topic"></p>
+            <label>
+              Room ID
+              <input id="spaceSettingsId" type="text" readonly />
+            </label>
+            <label>
+              Link
+              <input id="spaceSettingsLink" type="text" readonly />
+            </label>
+            <div class="space-dialog-actions">
+              <button type="submit" value="close" class="ghost">Close</button>
+            </div>
+          </form>
+        </dialog>
+
+        <div id="messageContextMenu" class="space-menu message-context-menu" hidden role="menu">
+          <div id="messageReactRow" class="message-react-row" role="group" aria-label="Quick reactions"></div>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item" data-message-action="add-reaction" role="menuitem">
+            <span>Add Reaction</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8.5 14.5s1.8 2.2 3.5 2.2 3.5-2.2 3.5-2.2"/><path d="M12 8v5M9.5 10.5h5"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="reply" role="menuitem">
+            <span>Reply</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M9 14H4V9"/><path d="M20 18a8 8 0 0 0-8-8H4"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="reply-thread" role="menuitem">
+            <span>Reply in Thread</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 3V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M12 8v5M9.5 10.5h5"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="edit" role="menuitem">
+            <span>Edit Message</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="receipts" role="menuitem">
+            <span>Read Receipts</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="m4 12 4 4L16 6"/><path d="m10 12 4 4 8-10"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="view-source" role="menuitem">
+            <span>View Source</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m14 4-4 16"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="copy-link" role="menuitem">
+            <span>Copy Link</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.1 0l2.1-2.1a5 5 0 0 0-7.1-7.1L11 5"/><path d="M14 11a5 5 0 0 0-7.1 0L4.8 13.1a5 5 0 0 0 7.1 7.1L13 19"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="copy" role="menuitem">
+            <span>Copy Raw Text</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-message-action="pin" role="menuitem">
+            <span id="messagePinLabel">Pin Message</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M12 17v5"/><path d="M9 3h6l1 7H8L9 3z"/><path d="M8 10h8l-1.5 4h-5L8 10z"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep" data-message-sep="delete"></div>
+          <button
+            type="button"
+            class="space-menu-item space-menu-item--danger"
+            data-message-action="delete"
+            role="menuitem"
+          >
+            <span>Delete</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-.8 12.1A2 2 0 0 1 16.2 20H7.8a2 2 0 0 1-2-1.9L5 6"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <dialog id="messageSourceDialog" class="space-dialog">
+          <form method="dialog" class="space-dialog-card message-source-card">
+            <header class="create-room-head">
+              <h3>Event Source</h3>
+              <button type="submit" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <pre id="messageSourceBody" class="message-source-body"></pre>
+          </form>
+        </dialog>
+
+        <dialog id="messageReceiptsDialog" class="space-dialog">
+          <form method="dialog" class="space-dialog-card">
+            <header class="create-room-head">
+              <h3>Read Receipts</h3>
+              <button type="submit" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <ul id="messageReceiptsList" class="message-receipts-list"></ul>
+          </form>
+        </dialog>
+
+        <div id="roomPinsPanel" class="room-pins-panel" hidden role="dialog" aria-labelledby="roomPinsTitle">
+          <header class="room-pins-head">
+            <strong id="roomPinsTitle">Pinned Messages</strong>
+            <button type="button" id="roomPinsClose" class="ghost room-pins-close" aria-label="Close">×</button>
+          </header>
+          <div id="roomPinsList" class="room-pins-list"></div>
+        </div>
+
+        <div id="roomThreadsPanel" class="room-pins-panel" hidden role="dialog" aria-labelledby="roomThreadsTitle">
+          <header class="room-pins-head">
+            <strong id="roomThreadsTitle">Threads</strong>
+            <button type="button" id="roomThreadsClose" class="ghost room-pins-close" aria-label="Close">×</button>
+          </header>
+          <div id="roomThreadsList" class="room-pins-list"></div>
+        </div>
+
+        <div id="roomContextMenu" class="space-menu" hidden role="menu">
+          <button type="button" class="space-menu-item" data-room-action="mark-read" role="menuitem">
+            <span>Mark as Read</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="m4 12 4 4L16 6"/><path d="m10 12 4 4 8-10"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="notifications" role="menuitem">
+            <span>Notifications</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 7H3s3 0 3-7"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item" data-room-action="voice" role="menuitem" disabled title="Coming soon">
+            <span>Join Voice</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0M12 18v3"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="invite" role="menuitem">
+            <span>Invite</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3 19.5c.7-2.8 2.9-4.5 6-4.5s5.3 1.7 6 4.5"/><path d="M19 8v6M16 11h6"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="copy-link" role="menuitem">
+            <span>Copy Link</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="settings" role="menuitem">
+            <span>Room Settings</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+            </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="add-subroom" role="menuitem">
+            <span>Add Sub-Room</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+            </span>
+          </button>
+          <div class="space-menu-sep"></div>
+          <button type="button" class="space-menu-item space-menu-item--danger" data-room-action="leave" role="menuitem">
+            <span>Leave Room</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+            </span>
+          </button>
+        </div>
+
+        <dialog id="roomSettingsDialog" class="space-dialog">
+          <form method="dialog" id="roomSettingsForm" class="space-dialog-card">
+            <h3 id="roomSettingsTitle">Room Settings</h3>
+            <p id="roomSettingsMeta" class="space-dialog-topic"></p>
+            <label>
+              Room ID
+              <input id="roomSettingsId" type="text" readonly />
+            </label>
+            <label>
+              Link
+              <input id="roomSettingsLink" type="text" readonly />
+            </label>
+            <div class="space-dialog-actions">
+              <button type="submit" value="close" class="ghost">Close</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="inviteUserDialog" class="space-dialog">
+          <form id="inviteUserForm" class="space-dialog-card">
+            <h3 id="inviteUserTitle">Invite people</h3>
+            <p id="inviteUserMeta" class="space-dialog-topic">Send a Matrix invite to this room or space.</p>
+            <label>
+              Matrix user ID
+              <input id="inviteUserInput" type="text" placeholder="@user:exau.dev" autocomplete="off" required />
+            </label>
+            <p id="inviteUserError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="inviteUserCancel" class="ghost">Cancel</button>
+              <button type="submit" id="inviteUserSubmit">Send invite</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="joinRoomDialog" class="space-dialog join-address-dialog">
+          <form id="joinRoomForm" class="space-dialog-card join-address-card">
+            <header class="create-room-head">
+              <h3>Join with Address</h3>
+              <button type="button" id="joinRoomCancel" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <div class="join-address-copy">
+              <p>Enter public address to join the community. Addresses looks like:</p>
+              <ul>
+                <li>#community:server</li>
+                <li>https://matrix.to/#/#community:server</li>
+                <li>https://matrix.to/#/!xYzAjj?via=server</li>
+              </ul>
+            </div>
+            <label class="create-room-field">
+              <span>Address</span>
+              <input id="joinRoomInput" type="text" placeholder="#community:server" autocomplete="off" required />
+            </label>
+            <p id="joinRoomError" class="space-dialog-error" hidden></p>
+            <button type="submit" id="joinRoomSubmit" class="create-room-submit">Open</button>
+          </form>
+        </dialog>
+
+        <dialog id="cryptoSetupDialog" class="space-dialog">
+          <form id="cryptoSetupForm" class="space-dialog-card">
+            <h3 id="cryptoSetupTitle">Set up encryption</h3>
+            <p class="space-dialog-topic">
+              Enter your recovery key from another verified client to unlock encryption on this device.
+            </p>
+            <label>
+              Recovery key
+              <input
+                id="cryptoSetupRecoveryKey"
+                type="text"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="EsTB … recovery key"
+                required
+              />
+            </label>
+            <p id="cryptoSetupError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="cryptoSetupCancel" class="ghost">Cancel</button>
+              <button type="submit" id="cryptoSetupSubmit">Continue</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="accountPasswordDialog" class="space-dialog">
+          <form id="accountPasswordForm" class="space-dialog-card">
+            <h3 id="accountPasswordTitle">Confirm password</h3>
+            <p id="accountPasswordTopic" class="space-dialog-topic">
+              Enter your account password to continue.
+            </p>
+            <label>
+              Password
+              <input
+                id="accountPasswordInput"
+                type="password"
+                autocomplete="current-password"
+                required
+              />
+            </label>
+            <p id="accountPasswordError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="accountPasswordCancel" class="ghost">Cancel</button>
+              <button type="submit" id="accountPasswordSubmit">Continue</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="stickerPackViewDialog" class="space-dialog">
+          <div class="space-dialog-card sticker-pack-dialog">
+            <h3 id="stickerPackViewTitle">Pack</h3>
+            <div id="stickerPackViewGrid" class="sticker-pack-view-grid"></div>
+            <div class="space-dialog-actions">
+              <button type="button" id="stickerPackViewClose" class="ghost">Close</button>
+              <button type="button" id="stickerPackSetDefaultBtn">Set as default</button>
+            </div>
+          </div>
+        </dialog>
+
+        <dialog id="favoritePackDialog" class="space-dialog">
+          <form id="favoritePackForm" class="space-dialog-card">
+            <h3>Select Pack</h3>
+            <p class="space-dialog-topic">Pick sticker packs to use in the composer across all rooms.</p>
+            <div id="favoritePackOptions" class="favorite-pack-options"></div>
+            <p id="favoritePackError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="favoritePackCancel" class="ghost">Cancel</button>
+              <button type="submit" id="favoritePackSave">Save</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="accountDataDialog" class="space-dialog">
+          <form id="accountDataForm" class="space-dialog-card account-data-dialog">
+            <h3 id="accountDataDialogTitle">Account data</h3>
+            <p class="space-dialog-topic" id="accountDataDialogTopic">View or edit this account data event.</p>
+            <label id="accountDataTypeLabel">
+              Event type
+              <input id="accountDataTypeInput" type="text" autocomplete="off" spellcheck="false" placeholder="m.example" />
+            </label>
+            <label>
+              Content (JSON)
+              <textarea id="accountDataContentInput" rows="14" spellcheck="false"></textarea>
+            </label>
+            <p id="accountDataError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="accountDataCancel" class="ghost">Close</button>
+              <button type="submit" id="accountDataSave">Save</button>
+            </div>
+          </form>
+        </dialog>
+
+        <div id="userProfileCard" class="user-profile-card" hidden>
+          <div class="user-profile-banner" id="userProfileBanner">
+            <img id="userProfileBannerImg" class="user-profile-banner-img" alt="" hidden />
+          </div>
+          <div class="user-profile-avatar-wrap">
+            <img id="userProfileAvatar" class="user-profile-avatar" alt="" hidden />
+            <span id="userProfileAvatarFallback" class="user-profile-avatar-fallback">?</span>
+            <span id="userProfileOnline" class="user-profile-online" hidden></span>
+          </div>
+          <div class="user-profile-body">
+            <span class="sender-nameplate" id="userProfileNamePlate">
+              <span class="sender-nameplate-asset" aria-hidden="true"></span>
+              <strong id="userProfileName" class="sender">User</strong>
+            </span>
+            <span id="userProfileId" class="user-profile-id"></span>
+            <div id="userProfileStatus" class="user-profile-status" hidden></div>
+            <div class="user-profile-meta">
+              <span id="userProfileServer" class="user-profile-chip"></span>
+              <button type="button" id="userProfileShareBtn" class="user-profile-chip user-profile-chip--btn">
+                <span aria-hidden="true">🔗</span> Share
+              </button>
+              <span id="userProfileRole" class="user-profile-chip" hidden></span>
+            </div>
+            <button type="button" id="userProfileMessageBtn" class="user-profile-message">
+              <span aria-hidden="true">💬</span> Message
+            </button>
+            <button type="button" id="userProfileMoreBtn" class="user-profile-more" title="Mention" aria-label="Mention user">⋯</button>
+          </div>
+        </div>
+
+        <div id="chatMain" class="chat-main">
+          <aside class="room-rail">
+            <div class="rail-head">
+              <button
+                type="button"
+                id="spaceBackBtn"
+                class="rail-head-back"
+                hidden
+                title="Back to parent space"
+                aria-label="Back to parent space"
+              >
+                <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="m15 18-6-6 6-6"/>
+                </svg>
+              </button>
+              <h1 id="spaceFilterLabel" class="rail-head-title">Direct Messages</h1>
+              <div class="rail-head-actions" id="railHeadDmActions" hidden>
+                <button type="button" id="dmCreateChatHeadBtn" class="rail-head-btn" title="Create chat" aria-label="Create chat">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="rail-head-actions" id="railHeadDefaultActions">
+                <button type="button" id="joinRoomBtn" class="rail-head-btn" title="Join room or space" aria-label="Join room or space">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </button>
+                <button type="button" id="invitesBtn" class="rail-head-btn" title="Pending invites" aria-label="Pending invites">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <path d="m3 7 9 7 9-7"/>
+                  </svg>
+                  <span id="invitesBadge" class="rail-head-badge" hidden>0</span>
+                </button>
+              </div>
+            </div>
+            <nav id="dmRailNav" class="dm-rail-nav" hidden aria-label="Direct message tools">
+              <button type="button" id="dmCreateChatBtn" class="dm-rail-nav-item">
+                <span class="dm-rail-nav-icon" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24">
+                    <path d="M12 5v14M5 12h14"/>
+                  </svg>
+                </span>
+                <span>Create Chat</span>
+              </button>
+              <button type="button" id="dmMessageSearchBtn" class="dm-rail-nav-item">
+                <span class="dm-rail-nav-icon" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7"/>
+                    <path d="m20 20-3.5-3.5"/>
+                  </svg>
+                </span>
+                <span>Message Search</span>
+              </button>
+              <button type="button" id="dmInvitesBtn" class="dm-rail-nav-item">
+                <span class="dm-rail-nav-icon" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24">
+                    <rect x="3" y="5" width="18" height="14" rx="2"/>
+                    <path d="m3 7 9 7 9-7"/>
+                  </svg>
+                </span>
+                <span>Invites</span>
+                <span id="dmInvitesBadge" class="dm-rail-nav-badge" hidden>0</span>
+              </button>
+            </nav>
+            <nav id="spaceRailNav" class="dm-rail-nav space-rail-nav" hidden aria-label="Space tools">
+              <button type="button" id="spaceLobbyBtn" class="dm-rail-nav-item">
+                <span class="dm-rail-nav-icon" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24">
+                    <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
+                    <path d="M4 22v-7"/>
+                  </svg>
+                </span>
+                <span id="spaceLobbyBtnLabel">Lobby</span>
+              </button>
+              <button type="button" id="spaceMessageSearchBtn" class="dm-rail-nav-item">
+                <span class="dm-rail-nav-icon" aria-hidden="true">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24">
+                    <circle cx="11" cy="11" r="7"/>
+                    <path d="m20 20-3.5-3.5"/>
+                  </svg>
+                </span>
+                <span>Message Search</span>
+              </button>
+            </nav>
+            <div id="invitesPanel" class="invites-panel" hidden>
+              <div class="invites-panel-head">
+                <strong>Pending invites</strong>
+                <button type="button" id="invitesPanelClose" class="ghost invites-panel-close" aria-label="Close">×</button>
+              </div>
+              <ul id="invitesList" class="invites-list"></ul>
+            </div>
+            <ul id="roomList" class="room-list"></ul>
+          </aside>
+          <div id="chatStage" class="chat-stage">
+          <section id="createChatPane" class="create-chat-pane" hidden>
+            <div class="create-chat-card">
+              <div class="create-chat-hero" aria-hidden="true">@</div>
+              <h2>Create Chat</h2>
+              <p class="create-chat-lede">Start a private, encrypted chat by entering a user ID.</p>
+              <form id="createChatForm" class="create-chat-form">
+                <label class="create-chat-field">
+                  <span>User ID</span>
+                  <input id="createChatUserId" type="text" placeholder="@username:server" autocomplete="off" required />
+                </label>
+                <div class="create-chat-options">
+                  <label class="create-chat-toggle">
+                    <span class="create-chat-toggle-copy">
+                      <strong>End-to-End Encryption</strong>
+                      <span>Once this feature is enabled, it can't be disabled after the room is created.</span>
+                    </span>
+                    <input id="createChatEncrypted" type="checkbox" checked />
+                    <span class="create-chat-switch" aria-hidden="true"></span>
+                  </label>
+                </div>
+                <p id="createChatError" class="create-chat-error" hidden></p>
+                <button type="submit" id="createChatSubmit" class="create-chat-submit">Create</button>
+              </form>
+            </div>
+          </section>
+          <section id="lobbyPane" class="lobby-pane" hidden>
+            <div id="lobbyBody" class="lobby-body"></div>
+          </section>
+          <section id="forumPane" class="forum-pane" hidden>
+            <div id="forumBody" class="forum-body"></div>
+          </section>
+          <dialog id="forumPostDialog" class="forum-post-dialog">
+            <form id="forumPostForm" method="dialog" class="forum-post-form">
+              <header class="forum-post-dialog-head">
+                <h3>New post</h3>
+                <button type="button" id="forumPostCancel" class="ghost" aria-label="Close">×</button>
+              </header>
+              <p class="forum-post-lede">Creates a Paarrot-compatible titled root in the topic room.</p>
+              <label class="forum-post-field">
+                <span>Topic</span>
+                <select id="forumPostTopic" required></select>
+              </label>
+              <label class="forum-post-field">
+                <span>Title</span>
+                <input id="forumPostTitle" type="text" maxlength="140" required placeholder="Post title" />
+              </label>
+              <label class="forum-post-field">
+                <span>Body</span>
+                <textarea id="forumPostBody" rows="5" required placeholder="Write your post…"></textarea>
+              </label>
+              <p id="forumPostError" class="forum-post-error" hidden></p>
+              <div class="forum-post-actions">
+                <button type="submit" id="forumPostSubmit" class="forum-post-submit">Post</button>
+              </div>
+            </form>
+          </dialog>
+          <section class="timeline-pane">
+            <header class="timeline-head">
+              <div class="timeline-head-main">
+                <div class="timeline-room-identity">
+                  <img id="activeRoomAvatar" class="timeline-room-avatar" alt="" hidden />
+                  <span id="activeRoomAvatarFallback" class="timeline-room-avatar-fallback" hidden aria-hidden="true"></span>
+                  <div class="timeline-room-copy">
+                    <h2 id="activeRoomName">Select a room</h2>
+                    <p id="callStatus" class="call-status" hidden></p>
+                  </div>
+                </div>
+              </div>
+              <div class="timeline-head-actions" id="timelineCallActions" hidden>
+                <div class="timeline-action-group">
+                  <button type="button" id="voiceCallBtn" class="timeline-action timeline-action--call" title="Start voice call" aria-label="Start voice call">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M22 16.9v2.2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.9 4.2 2 2 0 0 1 4.9 2h2.2a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/>
+                    </svg>
+                  </button>
+                  <button type="button" id="videoCallBtn" class="timeline-action timeline-action--video" title="Start video call" aria-label="Start video call">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <rect x="2.5" y="6" width="13" height="12" rx="2"/>
+                      <path d="m22 7-5.5 3.5v3L22 17V7z"/>
+                    </svg>
+                  </button>
+                  <button type="button" id="hangupCallBtn" class="timeline-action timeline-action--hangup" title="Leave call" aria-label="Leave call" hidden>
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M10.7 13.3a16 16 0 0 1-3-3l1.4-1.4a2 2 0 0 0 .5-2.1 12 12 0 0 0-.6-2.6A2 2 0 0 0 7 2.5H4.8A2 2 0 0 0 2.8 4.5c.2 2.2.8 4.3 1.8 6.2M13.3 10.7a16 16 0 0 1 3 3l1.4-1.4a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.6.6a2 2 0 0 1 1.7 2.1v2.2a2 2 0 0 1-2.2 2 19.5 19.5 0 0 1-6.2-1.8"/>
+                      <path d="m4 4 16 16"/>
+                    </svg>
+                  </button>
+                </div>
+                <button type="button" id="roomSearchBtn" class="timeline-icon-btn" title="Search" aria-label="Search messages" hidden>
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7"/>
+                    <path d="m20 20-3.5-3.5"/>
+                  </svg>
+                </button>
+                <button type="button" id="roomPinsBtn" class="timeline-icon-btn" title="Pinned messages" aria-label="Pinned messages" aria-haspopup="dialog" aria-expanded="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M15 4.5 9.5 5.8 8 11l5 5 5.2-1.5L19.5 9z"/>
+                    <path d="m12 15.5-4.5 6"/>
+                  </svg>
+                  <span id="roomPinsBadge" class="timeline-icon-badge" hidden>0</span>
+                </button>
+                <button type="button" id="roomMembersBtn" class="timeline-icon-btn" title="Show members" aria-label="Show members" aria-pressed="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="8" r="3.5"/>
+                    <path d="M5 19.5c.8-3.2 3.4-5 7-5s6.2 1.8 7 5"/>
+                  </svg>
+                </button>
+                <button type="button" id="roomThreadsBtn" class="timeline-icon-btn" title="Threads" aria-label="Threads" aria-haspopup="dialog" aria-expanded="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h8a2.5 2.5 0 0 1 2.5 2.5v4A2.5 2.5 0 0 1 15 13h-1.2L10.5 16v-3H7A2.5 2.5 0 0 1 4.5 10.5v-4z"/>
+                    <path d="M9.5 14.5v.5A2.5 2.5 0 0 0 12 17.5h1.2L16.5 20.5v-3H17a2.5 2.5 0 0 0 2.5-2.5v-3"/>
+                  </svg>
+                </button>
+                <button type="button" id="roomMediaBtn" class="timeline-icon-btn" title="Shared Media" aria-label="Shared Media" aria-pressed="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="3.5" y="4.5" width="17" height="15" rx="2.5"/>
+                    <circle cx="9" cy="10" r="1.6"/>
+                    <path d="m7.5 17 3.2-3.4a1.2 1.2 0 0 1 1.7 0L14 15.2l1.3-1.3a1.2 1.2 0 0 1 1.7 0L19 16.5"/>
+                  </svg>
+                </button>
+                <button type="button" id="roomMoreBtn" class="timeline-icon-btn" title="More options" aria-label="More options" aria-haspopup="menu" aria-expanded="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle cx="12" cy="5.5" r="1.25" class="ui-icon--fill"/>
+                    <circle cx="12" cy="12" r="1.25" class="ui-icon--fill"/>
+                    <circle cx="12" cy="18.5" r="1.25" class="ui-icon--fill"/>
+                  </svg>
+                </button>
+              </div>
+            </header>
+            <audio id="remoteCallAudio" autoplay></audio>
+            <div id="messageList" class="message-list"></div>
+            <div id="typingIndicator" class="typing-indicator" hidden aria-live="polite"></div>
+            <form id="composerForm" class="composer" hidden>
+              <div id="composerDropHint" class="composer-drop-hint" hidden>Drop images to upload</div>
+              <div id="composerReplyBar" class="composer-reply-bar" hidden>
+                <div class="composer-reply-copy">
+                  <strong id="composerReplyLabel">Replying</strong>
+                  <span id="composerReplyPreview"></span>
+                </div>
+                <button type="button" id="composerReplyCancel" class="ghost" aria-label="Cancel reply">×</button>
+              </div>
+              <div id="composerEditBar" class="composer-reply-bar composer-edit-bar" hidden>
+                <div class="composer-reply-copy">
+                  <strong>Editing message</strong>
+                  <span id="composerEditPreview"></span>
+                </div>
+                <button type="button" id="composerEditCancel" class="ghost" aria-label="Cancel edit">×</button>
+              </div>
+              <div id="composerAttachPreview" class="composer-attach-preview" hidden></div>
+              <div class="composer-dock">
+              <div class="composer-shell">
+                <div class="composer-row">
+                  <button type="button" id="composerAttachBtn" class="composer-attach" title="Attach image" aria-label="Attach image" data-i18n="composer.attach" data-i18n-attr="title aria-label">
+                    <span aria-hidden="true">+</span>
+                  </button>
+                  <div class="composer-input-wrap">
+                    <div id="composerMentions" class="composer-mentions" hidden></div>
+                    <textarea
+                      id="composerInput"
+                      rows="1"
+                      placeholder="Send a message…" data-i18n="composer.placeholder" data-i18n-attr="placeholder"
+                      autocomplete="off"
+                    ></textarea>
+                  </div>
+                  <button type="button" id="composerMarkdownBtn" class="composer-tool" title="Markdown" aria-label="Markdown formatting" aria-pressed="false">
+                    <span class="ui-icon-label" aria-hidden="true">Aa</span>
+                  </button>
+                  <button type="button" id="composerEmojiBtn" class="composer-tool" title="Emoji & stickers" aria-label="Emoji and stickers" aria-pressed="false">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"/>
+                      <path d="M8.5 14.5s1.8 2.2 3.5 2.2 3.5-2.2 3.5-2.2"/>
+                      <circle cx="9" cy="10" r="1" class="ui-icon--fill"/>
+                      <circle cx="15" cy="10" r="1" class="ui-icon--fill"/>
+                    </svg>
+                  </button>
+                  <button type="button" id="composerGifBtn" class="composer-tool" title="GIF" aria-label="GIF" aria-pressed="false">
+                    <span class="composer-gif-label" aria-hidden="true">GIF</span>
+                  </button>
+                  <button type="submit" id="composerSendBtn" class="composer-send" title="Send" aria-label="Send">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M22 2 11 13"/>
+                      <path d="M22 2 15 22 11 13 2 9z"/>
+                    </svg>
+                  </button>
+                </div>
+                <div id="composerMarkdownBar" class="composer-md-bar" hidden>
+                  <button type="button" data-md="bold" title="Bold"><b>B</b></button>
+                  <button type="button" data-md="italic" title="Italic"><i>I</i></button>
+                  <button type="button" data-md="underline" title="Underline"><u>U</u></button>
+                  <button type="button" data-md="strike" title="Strikethrough"><s>S</s></button>
+                  <button type="button" data-md="code" title="Inline code">&lt;/&gt;</button>
+                  <button type="button" data-md="spoiler" title="Spoiler">░░</button>
+                  <span class="composer-md-sep" aria-hidden="true"></span>
+                  <button type="button" data-md="quote" title="Quote">“”</button>
+                  <button type="button" data-md="codeblock" title="Code block">{ }</button>
+                  <button type="button" data-md="ul" title="Bulleted list">•≡</button>
+                  <button type="button" data-md="ol" title="Numbered list">1.</button>
+                  <button type="button" data-md="heading" title="Heading">H1</button>
+                </div>
+              </div>
+
+              <div id="composerPicker" class="composer-picker" hidden>
+                <div class="composer-picker-main">
+                  <div class="composer-picker-header">
+                    <div class="composer-picker-tabs" role="tablist">
+                      <button type="button" class="composer-picker-tab" data-picker-tab="sticker" role="tab">Sticker</button>
+                      <button type="button" class="composer-picker-tab is-active" data-picker-tab="emoji" role="tab">Emoji</button>
+                      <button type="button" class="composer-picker-tab" data-picker-tab="gif" role="tab" hidden>GIF</button>
+                    </div>
+                    <div class="composer-picker-search">
+                      <input id="composerPickerSearch" type="search" placeholder="Search" autocomplete="off" />
+                      <svg class="composer-picker-search-icon ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="11" cy="11" r="7"/>
+                        <path d="m20 20-3.5-3.5"/>
+                      </svg>
+                    </div>
+                  </div>
+                  <div id="composerPickerBody" class="composer-picker-body"></div>
+                  <div id="composerPickerPreview" class="composer-picker-preview" hidden>
+                    <span id="composerPickerPreviewEmoji" class="composer-picker-preview-emoji" aria-hidden="true"></span>
+                    <span id="composerPickerPreviewCode" class="composer-picker-preview-code"></span>
+                  </div>
+                </div>
+                <div id="composerPickerSidebar" class="composer-picker-sidebar" hidden aria-label="Emoji categories"></div>
+              </div>
+              </div>
+
+              <input
+                id="composerFile"
+                type="file"
+                accept="image/*,video/*,.png,.apng,.gif,.jpg,.jpeg,.webp,.bmp,.avif,.heic,.heif,.webm,.mp4,.mov"
+                multiple
+                hidden
+              />
+            </form>
+          </section>
+          <aside id="roomMembersPanel" class="room-members-panel" hidden>
+            <header class="room-members-head">
+              <strong id="roomMembersTitle">Members</strong>
+              <button type="button" id="roomMembersClose" class="ghost room-members-close" aria-label="Close members">×</button>
+            </header>
+            <div class="room-members-search">
+              <input id="roomMembersFilter" type="search" placeholder="Type name…" autocomplete="off" />
+            </div>
+            <ul id="roomMembersList" class="room-members-list"></ul>
+          </aside>
+          <aside id="sharedMediaPanel" class="shared-media-panel" hidden>
+            <header class="shared-media-head">
+              <strong id="sharedMediaTitle">Shared Media</strong>
+              <button type="button" id="sharedMediaClose" class="ghost room-members-close" aria-label="Close shared media">×</button>
+            </header>
+            <div id="sharedMediaFilters" class="shared-media-filters" hidden></div>
+            <div id="sharedMediaBody" class="shared-media-body"></div>
+          </aside>
+          </div>
+        </div>
+
+        <section id="messageSearchView" class="message-search-view" hidden>
+          <header class="message-search-top">
+            <button type="button" id="messageSearchBack" class="ghost message-search-back" aria-label="Back">←</button>
+            <h2>
+              <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                <path fill="currentColor" d="M15.5 14h-.8l-.3-.3A6.5 6.5 0 1 0 14 15.5l.3.3v.8l5 5 1.5-1.5-5-5zm-6 0C7 14 5 12 5 9.5S7 5 9.5 5 14 7 14 9.5 12 14 9.5 14z"/>
+              </svg>
+              Message Search
+            </h2>
+          </header>
+          <div class="message-search-body">
+            <div class="message-search-section">
+              <span class="message-search-label">Search</span>
+              <form id="messageSearchForm" class="message-search-row">
+                <input id="messageSearchInput" type="search" placeholder="Search for keyword" autocomplete="off" />
+                <button type="submit" id="messageSearchEnter" class="message-search-enter">Enter</button>
+              </form>
+            </div>
+            <div class="message-search-section">
+              <span class="message-search-label">Filter</span>
+              <div class="message-search-filters">
+                <button type="button" id="messageSearchFilterDms" class="message-search-chip" data-search-filter="dms">
+                  Direct Messages
+                </button>
+                <button type="button" id="messageSearchFilterGlobal" class="message-search-chip" data-search-filter="global">
+                  Global
+                </button>
+                <button type="button" id="messageSearchRoomChip" class="message-search-chip message-search-chip--room is-active" hidden>
+                  <span id="messageSearchRoomChipLabel">Room</span>
+                  <span class="message-search-chip-x" aria-hidden="true">×</span>
+                </button>
+                <span class="message-search-filters-spacer"></span>
+                <button type="button" id="messageSearchSort" class="message-search-chip message-search-chip--sort" title="Sort order">
+                  Recent
+                  <span aria-hidden="true">↕</span>
+                </button>
+              </div>
+            </div>
+            <div id="messageSearchResults" class="message-search-results">
+              <div class="message-search-empty">
+                <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+                  <path fill="none" stroke="currentColor" stroke-width="1.5" d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/>
+                </svg>
+                <h3>Search Messages</h3>
+                <p>Find helpful messages in your community by searching with related keywords.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="settingsView" class="settings-view" hidden>
+          <div class="settings-layout">
+            <aside class="settings-nav" aria-label="Settings">
+              <div class="settings-nav-head">
+                <h2 data-i18n="nav.settings">Settings</h2>
+              </div>
+              <nav class="settings-nav-list" role="tablist" aria-orientation="vertical">
+                <button type="button" class="settings-nav-item" data-settings-tab="general" role="tab" data-i18n="settings.general">General</button>
+                <button type="button" class="settings-nav-item active" data-settings-tab="account" role="tab" aria-selected="true" data-i18n="settings.account">Account</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="notifications" role="tab" data-i18n="settings.notifications">Notifications</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="audio" role="tab">Audio &amp; Video</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="devices" role="tab" data-i18n="settings.devices">Devices</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="appearance" role="tab" data-i18n="settings.appearance">Appearance</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="emojis" role="tab" data-i18n="settings.emojis">Emojis &amp; Stickers</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="plugins" role="tab" data-i18n="settings.plugins">Plugins</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="devtools" role="tab" data-i18n="settings.developer">Developer Tools</button>
+                <button type="button" class="settings-nav-item" data-settings-tab="about" role="tab" data-i18n="settings.about">About</button>
+              </nav>
+              <button type="button" id="settingsNavLogoutBtn" class="settings-nav-logout" data-i18n="nav.logout">Log out</button>
+            </aside>
+
+            <div class="settings-main">
+              <div id="pane-settings-general" class="settings-pane" data-settings-pane="general" hidden>
+                <header class="settings-pane-title"><h3>General</h3></header>
+                <section class="settings-block">
+                  <h3>Session</h3>
+                  <p id="settingsSessionUser" class="settings-muted">Not signed in</p>
+                  <p id="settingsSessionHomeserver" class="settings-muted"></p>
+                </section>
+                <section class="settings-block">
+                  <h3>Date &amp; Time</h3>
+                  <label class="settings-check">
+                    <input id="prefHour24" type="checkbox" />
+                    24-hour time format
+                  </label>
+                  <label class="settings-field">
+                    <span>Date format</span>
+                    <select id="prefDateFormat">
+                      <option value="D MMM YYYY">27 Jul 2026</option>
+                      <option value="MMM D, YYYY">Jul 27, 2026</option>
+                      <option value="YYYY-MM-DD">2026-07-27</option>
+                      <option value="DD/MM/YYYY">27/07/2026</option>
+                      <option value="MM/DD/YYYY">07/27/2026</option>
+                    </select>
+                  </label>
+                </section>
+
+                <section class="settings-block">
+                  <h3 data-i18n="settings.language">Language</h3>
+                  <label class="settings-field">
+                    <span data-i18n="settings.language">Language</span>
+                    <select id="prefLanguage" aria-label="Language">
+                      <option value="system">System</option>
+                      <option value="en">English</option>
+                      <option value="de">Deutsch</option>
+                      <option value="fr">Français</option>
+                      <option value="es">Español</option>
+                      <option value="pt">Português</option>
+                      <option value="ja">日本語</option>
+                      <option value="zh-CN">简体中文</option>
+                    </select>
+                  </label>
+                  <p class="settings-muted" data-i18n="settings.languageHint">App interface language. System uses your OS language when available.</p>
+                </section>
+                <section class="settings-block">
+                  <h3 data-i18n="settings.editor">Editor</h3>
+                  <label class="settings-check">
+                    <input id="prefEnterForNewline" type="checkbox" />
+                    ENTER for newline
+                  </label>
+                  <p class="settings-muted">Use Ctrl+Enter to send. Otherwise Enter sends and Shift+Enter makes a newline.</p>
+                  <label class="settings-check">
+                    <input id="prefMarkdownFormatting" type="checkbox" checked />
+                    Markdown formatting
+                  </label>
+                  <p class="settings-muted">Convert markdown to HTML when sending messages.</p>
+                  <label class="settings-check">
+                    <input id="prefHideActivity" type="checkbox" />
+                    Hide typing &amp; read receipts
+                  </label>
+                  <p class="settings-muted">Turn off typing status and read receipts to keep your activity private.</p>
+                </section>
+                <section class="settings-block">
+                  <h3>Spaces</h3>
+                  <label class="settings-check">
+                    <input id="prefAutoJoinSpaceRooms" type="checkbox" checked />
+                    Auto-join space rooms
+                  </label>
+                  <p class="settings-muted">Automatically join accessible rooms when joining a space.</p>
+                </section>
+                <section class="settings-block">
+                  <h3>Messages</h3>
+                  <label class="settings-field">
+                    <span>Message layout</span>
+                    <select id="prefMessageLayout">
+                      <option value="modern">Modern</option>
+                      <option value="compact">Compact</option>
+                    </select>
+                  </label>
+                  <label class="settings-field">
+                    <span>Message spacing</span>
+                    <select id="prefMessageSpacing">
+                      <option value="ultra-small">Ultra Small</option>
+                      <option value="small">Small</option>
+                      <option value="normal" selected>Normal</option>
+                      <option value="large">Large</option>
+                    </select>
+                  </label>
+                  <label class="settings-field">
+                    <span>Scroll to latest on room reselect</span>
+                    <select id="prefScrollOnReselect">
+                      <option value="always" selected>Always</option>
+                      <option value="if-at-bottom">If at bottom</option>
+                      <option value="never">Never</option>
+                    </select>
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefLegacyUsernameColor" type="checkbox" />
+                    Legacy username color
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefHideMembership" type="checkbox" />
+                    Hide membership change
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefHideProfileChange" type="checkbox" checked />
+                    Hide profile change
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefDisableMediaAutoLoad" type="checkbox" />
+                    Disable media auto load
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefUrlPreview" type="checkbox" checked />
+                    URL preview
+                  </label>
+                  <p class="settings-muted">Show link cards and embed YouTube players under messages.</p>
+                  <label class="settings-check">
+                    <input id="prefUrlPreviewEncrypted" type="checkbox" checked />
+                    URL preview in encrypted rooms
+                  </label>
+                  <label class="settings-check">
+                    <input id="prefShowHiddenEvents" type="checkbox" />
+                    Show hidden events
+                  </label>
+                </section>
+              </div>
+
+              <div id="pane-settings-notifications" class="settings-pane" data-settings-pane="notifications" hidden>
+                <header class="settings-pane-title"><h3>Notifications</h3></header>
+                <section class="settings-block">
+                  <h3>System</h3>
+                  <label class="settings-check">
+                    <input id="notificationsEnabled" type="checkbox" checked />
+                    Desktop notifications
+                  </label>
+                  <p class="settings-muted">Show desktop notifications when messages arrive.</p>
+                  <label class="settings-check">
+                    <input id="notificationsSounds" type="checkbox" checked />
+                    Notification sound
+                  </label>
+                  <p class="settings-muted">Play sound when new messages arrive.</p>
+                  <label class="settings-check">
+                    <input id="notificationsInvites" type="checkbox" checked />
+                    Invite notifications
+                  </label>
+                  <p class="settings-muted">Desktop alerts for room and space invites.</p>
+                  <div class="settings-notif-email">
+                    <p class="settings-row-title">Email notification</p>
+                    <p id="notificationsEmailStatus" class="settings-muted">Checking account email…</p>
+                  </div>
+                  <div class="settings-actions">
+                    <button type="button" id="notificationsTestBtn" class="ghost">Send test notification</button>
+                  </div>
+                  <p id="notificationsStatus" class="settings-muted"></p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>All Messages</h3>
+                  <div id="notifUnderrideList" class="notif-rule-list"></div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Special Messages</h3>
+                  <div id="notifSpecialList" class="notif-rule-list"></div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Keyword Messages</h3>
+                  <p class="settings-row-title">Select Keyword</p>
+                  <p class="settings-muted">Set a notification preference for messages containing a given keyword.</p>
+                  <div class="settings-inline-form">
+                    <input id="notifKeywordInput" type="text" placeholder="keyword" autocomplete="off" />
+                    <button type="button" id="notifKeywordSaveBtn">Save</button>
+                  </div>
+                  <div id="notifKeywordList" class="notif-rule-list"></div>
+                  <p id="notifRulesStatus" class="settings-muted"></p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Block Messages</h3>
+                  <p class="settings-muted">This option has been moved to Account → Blocked Users.</p>
+                </section>
+              </div>
+
+              <div id="pane-settings-devices" class="settings-pane" data-settings-pane="devices" hidden>
+                <header class="settings-pane-title"><h3>Devices</h3></header>
+
+                <section class="settings-block">
+                  <h3>Security</h3>
+                  <div class="device-security-card">
+                    <div class="device-security-row">
+                      <div>
+                        <p class="settings-row-title">Device Verification</p>
+                        <p class="settings-muted">To verify device identity and grant access to encrypted messages.</p>
+                      </div>
+                      <div class="device-security-actions">
+                        <button type="button" id="deviceVerificationBtn" class="device-verify-btn">Unavailable</button>
+                        <div class="device-security-menu">
+                          <button
+                            type="button"
+                            id="deviceVerificationMenuBtn"
+                            class="device-security-menu-btn"
+                            aria-label="Device verification options"
+                            aria-haspopup="menu"
+                            aria-expanded="false"
+                          >
+                            ⋮
+                          </button>
+                          <div id="deviceVerificationMenu" class="device-security-menu-pop" role="menu" hidden>
+                            <button type="button" id="deviceVerificationResetBtn" role="menuitem">Reset</button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <p id="deviceSecurityNote" class="settings-muted"></p>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Current</h3>
+                  <div id="devicesCurrentList" class="devices-list"></div>
+                  <div id="deviceBackupRow" class="device-backup-row" hidden>
+                    <div class="device-backup-copy">
+                      <span class="settings-row-title">Encryption Backup</span>
+                      <span class="device-backup-status">
+                        <span class="device-backup-dot" aria-hidden="true"></span>
+                        <span id="deviceBackupLabel">Not connected</span>
+                      </span>
+                    </div>
+                    <button type="button" id="deviceBackupSetupBtn" class="ghost" hidden>Set up</button>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <div class="devices-others-head">
+                    <h3>Others</h3>
+                    <button type="button" id="removeUnverifiedDevicesBtn" class="ghost danger-text" hidden>
+                      Remove unverified
+                    </button>
+                  </div>
+                  <div id="devicesOthersList" class="devices-list"></div>
+                  <p id="devicesStatus" class="settings-muted"></p>
+                </section>
+              </div>
+
+              <div id="pane-settings-audio" class="settings-pane" data-settings-pane="audio" hidden>
+                <header class="settings-pane-title"><h3>Audio &amp; Video</h3></header>
+
+                <section class="settings-block">
+                  <h3>Microphone</h3>
+                  <p class="settings-row-title">Input Device</p>
+                  <p class="settings-muted">Select which microphone to use for voice calls.</p>
+                  <div class="settings-media-row">
+                    <select id="audioInputSelect" aria-label="Microphone input device"></select>
+                    <button type="button" id="audioInputTestBtn" class="ghost">Test</button>
+                    <button type="button" id="audioInputMonitorBtn" class="ghost">Monitor</button>
+                  </div>
+                  <p id="audioInputStatus" class="settings-muted"></p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Speaker</h3>
+                  <p class="settings-row-title">Output Device</p>
+                  <p class="settings-muted">Select which speaker to use for call audio.</p>
+                  <div class="settings-media-row">
+                    <select id="audioOutputSelect" aria-label="Speaker output device"></select>
+                    <button type="button" id="audioOutputTestBtn" class="ghost">Test</button>
+                  </div>
+                  <p id="audioOutputStatus" class="settings-muted"></p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Audio Processing</h3>
+                  <label class="settings-check">
+                    <input id="prefNoiseSuppression" type="checkbox" />
+                    Noise Suppression
+                  </label>
+                  <p class="settings-muted">Reduce background noise from your microphone during calls.</p>
+                  <label class="settings-check">
+                    <input id="prefEchoCancellation" type="checkbox" />
+                    Echo Cancellation
+                  </label>
+                  <p class="settings-muted">Prevent echo when your speakers feed back into your microphone.</p>
+                  <label class="settings-check">
+                    <input id="prefAutoGainControl" type="checkbox" checked />
+                    Auto Gain Control
+                  </label>
+                  <p class="settings-muted">Automatically adjust microphone volume for consistent levels.</p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Screen Sharing</h3>
+                  <label class="settings-field">
+                    <span>Resolution</span>
+                    <select id="prefScreenResolution">
+                      <option value="source">Source Resolution</option>
+                      <option value="720p">720p</option>
+                      <option value="1080p">1080p</option>
+                      <option value="1440p">1440p</option>
+                    </select>
+                  </label>
+                  <p class="settings-muted">Maximum resolution when sharing your screen.</p>
+                  <label class="settings-field">
+                    <span>Bitrate</span>
+                    <select id="prefScreenBitrate">
+                      <option value="low">Low (1 Mbps)</option>
+                      <option value="medium">Medium (2.5 Mbps)</option>
+                      <option value="high">High (5 Mbps)</option>
+                      <option value="ultra" selected>Ultra (10 Mbps)</option>
+                    </select>
+                  </label>
+                  <p class="settings-muted">Video quality for screen sharing. Higher uses more bandwidth.</p>
+                  <label class="settings-field">
+                    <span>Frame Rate</span>
+                    <select id="prefScreenFps">
+                      <option value="15" selected>15 FPS</option>
+                      <option value="24">24 FPS</option>
+                      <option value="30">30 FPS</option>
+                      <option value="60">60 FPS</option>
+                    </select>
+                  </label>
+                  <p class="settings-muted">Frames per second when sharing your screen.</p>
+                  <label class="settings-check">
+                    <input id="prefShowRemoteCursor" type="checkbox" checked />
+                    Show Remote Cursor
+                  </label>
+                  <p class="settings-muted">Include your cursor in shared screens when the browser supports it.</p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Tips</h3>
+                  <ul class="settings-tips">
+                    <li>If you don’t see your devices, make sure they are connected and permissions are granted.</li>
+                    <li>The Test button will help verify your devices are working correctly.</li>
+                    <li>Changes are saved automatically and will apply to your next call.</li>
+                  </ul>
+                </section>
+              </div>
+
+              <div id="pane-settings-account" class="settings-pane active" data-settings-pane="account">
+                <header class="settings-pane-title"><h3>Account</h3></header>
+
+                <section class="settings-block account-preview-block">
+                  <div id="accountPreviewCard" class="account-preview-card">
+                    <div class="account-preview-banner" id="accountPreviewBanner">
+                      <img id="accountPreviewBannerImg" alt="" hidden />
+                      <label class="account-preview-edit account-preview-edit--banner" title="Change banner">
+                        ✎
+                        <input
+                          id="accountBannerFile"
+                          type="file"
+                          accept="image/*,.png,.apng,.gif,.jpg,.jpeg,.webp,.bmp,.avif"
+                          hidden
+                        />
+                      </label>
+                    </div>
+                    <div class="account-preview-avatar-wrap">
+                      <img id="accountPreviewAvatar" class="account-preview-avatar" alt="" hidden />
+                      <span id="accountPreviewAvatarFallback" class="account-preview-avatar-fallback">?</span>
+                      <span id="accountPreviewOnline" class="account-preview-online"></span>
+                      <label class="account-preview-edit account-preview-edit--avatar" title="Change avatar">
+                        ✎
+                        <input
+                          id="accountAvatarFile"
+                          type="file"
+                          accept="image/*,.png,.apng,.gif,.jpg,.jpeg,.webp,.bmp,.avif"
+                          hidden
+                        />
+                      </label>
+                    </div>
+                    <div class="account-preview-body">
+                      <span class="sender-nameplate" id="accountPreviewNamePlate">
+                        <span class="sender-nameplate-asset" aria-hidden="true"></span>
+                        <strong id="accountPreviewName" class="sender">User</strong>
+                      </span>
+                      <span id="accountPreviewId" class="account-preview-id"></span>
+                      <button type="button" id="accountStatusBtn" class="account-status-btn">Click to set a custom status…</button>
+                      <div class="account-preview-meta">
+                        <span id="accountPreviewServer" class="user-profile-chip"></span>
+                        <button type="button" id="accountPreviewShareBtn" class="user-profile-chip user-profile-chip--btn">Share</button>
+                        <span id="accountPreviewRole" class="user-profile-chip user-profile-chip--role" hidden></span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Display name</h3>
+                  <p class="settings-muted">How your name appears across Matrix.</p>
+                  <div class="settings-inline-form">
+                    <input id="accountDisplayNameInput" type="text" maxlength="256" autocomplete="nickname" />
+                    <button type="button" id="accountDisplayNameSaveBtn">Save</button>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Profile Style</h3>
+                  <p class="settings-muted">Avatar border and card gradient — saved to your Matrix profile.</p>
+                  <div class="profile-style-grid">
+                    <label class="profile-style-field">
+                      Avatar border color
+                      <input id="styleBorderColor" type="color" value="#8e3af3" />
+                    </label>
+                    <label class="profile-style-field">
+                      Border opacity
+                      <input id="styleBorderAlpha" type="range" min="0" max="100" value="100" />
+                    </label>
+                    <label class="profile-style-field">
+                      Gradient start
+                      <input id="styleGradStart" type="color" value="#8e3af3" />
+                    </label>
+                    <label class="profile-style-field">
+                      Gradient end
+                      <input id="styleGradEnd" type="color" value="#1c1020" />
+                    </label>
+                    <label class="profile-style-field">
+                      Gradient angle
+                      <input id="styleGradAngle" type="range" min="0" max="360" value="180" />
+                      <span id="styleGradAngleLabel">180°</span>
+                    </label>
+                    <div class="profile-style-preview-wrap">
+                      <div id="styleGradPreview" class="profile-style-grad-preview"></div>
+                      <div class="settings-actions">
+                        <button type="button" id="styleSaveBtn">Save</button>
+                        <button type="button" id="styleRemoveBtn" class="ghost danger-text">Remove</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Username colors</h3>
+                  <p class="settings-muted">
+                    Paarrot reads <code>paarrot:color</code> / <code>paarrot:gradient</code> from avatar PNG metadata.
+                    Panda nameplate ships with those keys embedded.
+                  </p>
+                  <div class="nameplate-picker" id="nameplatePicker" role="listbox" aria-label="Nameplate">
+                    <button type="button" class="nameplate-option is-selected" data-nameplate="" role="option" aria-selected="true">
+                      <span class="nameplate-option-preview nameplate-option-preview--none">None</span>
+                    </button>
+                    <button type="button" class="nameplate-option" data-nameplate="panda" role="option" aria-selected="false">
+                      <span class="nameplate-option-preview" style="background-image:url('/nameplates/panda.png')"></span>
+                      <span class="nameplate-option-label">Panda</span>
+                    </button>
+                  </div>
+                  <div class="profile-style-grid" style="margin-top:0.85rem">
+                    <label class="profile-style-field">
+                      Name gradient start
+                      <input id="styleNameGradStart" type="color" value="#B78EE4" />
+                    </label>
+                    <label class="profile-style-field">
+                      Name gradient end
+                      <input id="styleNameGradEnd" type="color" value="#8A4DBF" />
+                    </label>
+                    <div class="profile-style-preview-wrap">
+                      <div id="styleNamePreview" class="sender-name-preview">
+                        <span class="sender-nameplate" id="styleNamePreviewPlate">
+                          <span class="sender-nameplate-asset" aria-hidden="true"></span>
+                          <span class="sender sender--preview" id="styleNamePreviewText">Username</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Matrix ID</h3>
+                  <div class="settings-copy-row">
+                    <code id="accountMatrixId">—</code>
+                    <button type="button" id="accountCopyIdBtn" class="ghost">Copy</button>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Contact Information</h3>
+                  <p class="settings-row-title">Email Address</p>
+                  <p class="settings-muted">Email address attached to your account.</p>
+                  <p id="accountEmail" class="settings-muted">Not available from this homeserver.</p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Blocked Users</h3>
+                  <p class="settings-row-title">Select User</p>
+                  <p class="settings-muted">Prevent receiving messages or invites from a user by adding their user ID.</p>
+                  <div class="settings-inline-form">
+                    <input id="blockUserInput" type="text" placeholder="@user:server" autocomplete="off" />
+                    <button type="button" id="blockUserBtn">Block</button>
+                  </div>
+                  <ul id="blockedUserList" class="blocked-user-list"></ul>
+                </section>
+              </div>
+
+              <div id="pane-settings-appearance" class="settings-pane" data-settings-pane="appearance" hidden>
+                <header class="settings-pane-title"><h3>Appearance</h3></header>
+                <section class="settings-block">
+                  <h3>Theme options</h3>
+                  <label class="settings-check">
+                    <input id="prefSystemTheme" type="checkbox" />
+                    System theme
+                  </label>
+                  <p class="settings-muted">Follow light/dark from your OS. Theme below is used when this is off.</p>
+                  <label class="settings-check">
+                    <input id="prefMonochrome" type="checkbox" />
+                    Monochrome mode
+                  </label>
+                  <label class="settings-field">
+                    <span data-i18n="settings.textSize">Text size</span>
+                    <select id="prefTextSize" aria-label="Text size">
+                      <option value="small">Small</option>
+                      <option value="normal" selected>Normal</option>
+                      <option value="large">Large</option>
+                      <option value="xlarge">Extra large</option>
+                    </select>
+                  </label>
+                  <p class="settings-muted" data-i18n="settings.textSizeHint">Scales interface text. Page zoom still scales the whole window.</p>
+                  <label class="settings-field">
+                    <span data-i18n="settings.pageZoom">Page zoom</span>
+                    <div class="settings-zoom-row">
+                      <input id="prefPageZoom" type="number" min="75" max="150" step="5" value="100" />
+                      <span class="settings-muted">%</span>
+                    </div>
+                  </label>
+                </section>
+                <section class="settings-block settings-appearance-block">
+                  <h3>Theme</h3>
+                  <p class="settings-muted">Pick a built-in look. Selecting a theme turns off System theme.</p>
+                  <div id="settingsThemePicker" class="theme-swatch-picker" role="listbox" aria-label="Color theme"></div>
+                </section>
+                <section class="settings-block">
+                  <h3>Emoji</h3>
+                  <p class="settings-muted">Use Twemoji (Twitter emoji) instead of system emoji.</p>
+                  <label class="settings-check">
+                    <input id="twitterEmojiEnabled" type="checkbox" checked />
+                    Twitter Emoji
+                  </label>
+                </section>
+              </div>
+
+              <div id="pane-settings-emojis" class="settings-pane" data-settings-pane="emojis" hidden>
+                <header class="settings-pane-title"><h3>Emojis &amp; Stickers</h3></header>
+
+                <section class="settings-block">
+                  <h3>Options</h3>
+                  <label class="settings-check">
+                    <input id="prefAutoConvertEmoticons" type="checkbox" checked />
+                    Auto-convert Text Emoticons
+                  </label>
+                  <p class="settings-muted">Automatically convert text emoticons like :) :D :( to emoji when sending messages.</p>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Default Pack</h3>
+                  <div class="emoji-pack-card" id="defaultPackCard">
+                    <div class="emoji-pack-card-main">
+                      <span class="emoji-pack-icon" aria-hidden="true">✦</span>
+                      <div>
+                        <p class="settings-row-title" id="defaultPackName">Unknown</p>
+                      </div>
+                    </div>
+                    <button type="button" id="defaultPackViewBtn" class="ghost">View</button>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Favorite Packs</h3>
+                  <div class="emoji-pack-card">
+                    <div class="emoji-pack-card-main">
+                      <div>
+                        <p class="settings-row-title">Select Pack</p>
+                        <p class="settings-muted">Pick emojis and stickers pack from rooms to use in all rooms.</p>
+                      </div>
+                    </div>
+                    <button type="button" id="favoritePackSelectBtn" class="ghost">Select</button>
+                  </div>
+                  <ul id="favoritePackList" class="emoji-favorite-list" hidden></ul>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Import from Telegram</h3>
+                  <label class="settings-field">
+                    <span>Telegram Bot Token</span>
+                    <p class="settings-muted">Create a bot via @BotFather on Telegram to get a token. Your token is stored locally.</p>
+                    <input
+                      id="telegramBotTokenInput"
+                      type="password"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz"
+                    />
+                  </label>
+                  <label class="settings-field">
+                    <span>Sticker Pack URL</span>
+                    <p class="settings-muted">Paste a Telegram sticker pack link (e.g., t.me/addstickers/PackName)</p>
+                    <input
+                      id="telegramPackUrlInput"
+                      type="url"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="https://t.me/addstickers/YourPackName"
+                    />
+                  </label>
+                  <div class="settings-actions emoji-import-actions">
+                    <button type="button" id="telegramImportBtn" disabled>Import Pack</button>
+                  </div>
+                  <p id="telegramImportStatus" class="settings-muted"></p>
+                </section>
+              </div>
+
+              <div id="pane-settings-plugins" class="settings-pane" data-settings-pane="plugins" hidden>
+                <header class="settings-pane-title"><h3>Plugins</h3></header>
+                <section class="settings-block">
+                  <h3>Installed plugins</h3>
+                  <div id="settingsPluginList" class="plugin-list"></div>
+                </section>
+              </div>
+
+              <div id="pane-settings-devtools" class="settings-pane" data-settings-pane="devtools" hidden>
+                <header class="settings-pane-title"><h3>Developer Tools</h3></header>
+
+                <section class="settings-block">
+                  <h3>Options</h3>
+                  <div class="devtools-row">
+                    <div>
+                      <p class="settings-row-title">Enable Developer Tools</p>
+                    </div>
+                    <label class="settings-check settings-check--switch">
+                      <input id="prefDeveloperTools" type="checkbox" />
+                      <span class="sr-only">Enable Developer Tools</span>
+                    </label>
+                  </div>
+                  <div id="devtoolsOptionsExtra" class="devtools-options-extra" hidden>
+                    <div class="devtools-row">
+                      <div>
+                        <p class="settings-row-title">Access Token</p>
+                        <p class="settings-muted">Copy access token to clipboard.</p>
+                      </div>
+                      <button type="button" id="devtoolsCopyTokenBtn" class="ghost">Copy</button>
+                    </div>
+                  </div>
+                </section>
+
+                <section id="devtoolsAccountDataSection" class="settings-block" hidden>
+                  <h3>Account Data</h3>
+                  <div class="devtools-account-card">
+                    <div class="devtools-row">
+                      <div>
+                        <p class="settings-row-title">Global</p>
+                        <p class="settings-muted">Data stored in your global account data.</p>
+                      </div>
+                      <button type="button" id="devtoolsAccountDataToggle" class="ghost">Expand</button>
+                    </div>
+                    <div id="devtoolsAccountDataBody" class="devtools-account-body" hidden>
+                      <div class="devtools-events-head">
+                        <p class="settings-row-title">Events</p>
+                        <p id="devtoolsAccountDataTotal" class="settings-muted">Total: 0</p>
+                      </div>
+                      <button type="button" id="devtoolsAccountDataAddBtn" class="ghost">+ Add New</button>
+                      <ul id="devtoolsAccountDataList" class="devtools-account-list"></ul>
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div id="pane-settings-about" class="settings-pane" data-settings-pane="about" hidden>
+                <header class="settings-pane-title"><h3>About</h3></header>
+
+                <section class="about-hero">
+                  <img class="about-hero-icon" src="/icon.svg" alt="" width="72" height="72" />
+                  <div class="about-hero-copy">
+                    <p class="about-hero-title">
+                      <span>Relay</span>
+                      <span id="settingsVersion" class="about-hero-version">v0.1.0</span>
+                    </p>
+                    <p class="about-hero-tagline">Lean Matrix desktop client</p>
+                    <button type="button" id="aboutSourceCodeBtn" class="ghost about-source-btn">
+                      <span aria-hidden="true">&lt;/&gt;</span>
+                      Source Code
+                    </button>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Options</h3>
+                  <div class="about-options-card">
+                    <div class="devtools-row">
+                      <div>
+                        <p class="settings-row-title">Clear Cache &amp; Reload</p>
+                        <p class="settings-muted">Clear all your locally stored data and reload from server.</p>
+                      </div>
+                      <button type="button" id="clearCacheBtn" class="ghost">Clear Cache</button>
+                    </div>
+                    <div class="devtools-row">
+                      <div>
+                        <p class="settings-row-title">Protocol Handler (relay://)</p>
+                        <p id="protocolHandlerStatus" class="settings-muted">Checking protocol registration…</p>
+                      </div>
+                      <div class="about-protocol-actions">
+                        <button type="button" id="protocolRepairBtn" class="ghost">Repair</button>
+                        <button type="button" id="protocolRefreshBtn" class="ghost">Refresh</button>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="settings-block">
+                  <h3>Credits</h3>
+                  <div class="about-credits-card">
+                    <ul class="settings-credits">
+                      <li>
+                        The
+                        <a href="https://github.com/matrix-org/matrix-js-sdk" target="_blank" rel="noreferrer noopener">matrix-js-sdk</a>
+                        is ©
+                        <a href="https://matrix.org/" target="_blank" rel="noreferrer noopener">The Matrix.org Foundation C.I.C</a>
+                        used under the terms of
+                        <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer noopener">Apache 2.0</a>.
+                      </li>
+                      <li>
+                        The
+                        <a href="https://github.com/mozilla/twemoji-colr" target="_blank" rel="noreferrer noopener">twemoji-colr</a>
+                        font is ©
+                        <a href="https://mozilla.org/" target="_blank" rel="noreferrer noopener">Mozilla Foundation</a>
+                        used under the terms of
+                        <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer noopener">Apache 2.0</a>.
+                      </li>
+                      <li>
+                        The
+                        <a href="https://twemoji.twitter.com/" target="_blank" rel="noreferrer noopener">Twemoji</a>
+                        emoji art is ©
+                        <a href="https://twemoji.twitter.com/" target="_blank" rel="noreferrer noopener">Twitter, Inc and other contributors</a>
+                        used under the terms of
+                        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer noopener">CC-BY 4.0</a>.
+                      </li>
+                      <li>
+                        The
+                        <a href="https://material.io/design/sound/sound-resources.html" target="_blank" rel="noreferrer noopener">Material sound resources</a>
+                        are ©
+                        <a href="https://www.google.com/" target="_blank" rel="noreferrer noopener">Google</a>
+                        used under the terms of
+                        <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noreferrer noopener">CC-BY 4.0</a>.
+                      </li>
+                    </ul>
+                  </div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+            <div id="callMediaDock" class="call-panel" hidden>
+              <header class="call-panel-head">
+                <div class="call-panel-head-main">
+                  <svg class="call-panel-phone ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M22 16.9v2.2a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.9 4.2 2 2 0 0 1 4.9 2h2.2a2 2 0 0 1 2 1.7c.1.9.3 1.8.6 2.6a2 2 0 0 1-.5 2.1L8 9.6a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2.1-.5c.8.3 1.7.5 2.6.6a2 2 0 0 1 1.7 2z"/>
+                  </svg>
+                  <div class="call-panel-titles">
+                    <strong id="callPanelTitle">In Call</strong>
+                    <button type="button" id="callParticipantsToggle" class="call-panel-chevron" title="Toggle participants" aria-expanded="true">
+                      <svg class="ui-icon ui-icon--sm ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 10 6 6 6-6"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <span id="callPanelTimer" class="call-panel-timer">00:00</span>
+              </header>
+
+              <section class="call-panel-body">
+                <div class="call-participants" id="callParticipantsSection">
+                  <div class="call-participants-head">
+                    <svg class="ui-icon ui-icon--sm ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19.5c.7-2.8 2.9-4.5 6-4.5s5.3 1.7 6 4.5"/><path d="M14.5 19.5c.5-1.8 1.8-3 3.5-3 1.5 0 2.7.9 3.2 2.2"/></svg>
+                    <span id="callParticipantLabel">Participants</span>
+                  </div>
+                  <ul id="callParticipantList" class="call-participant-list"></ul>
+                </div>
+
+                <div class="call-panel-stage" id="callPanelStage">
+                  <video id="remoteCallVideo" class="call-video call-video--remote" playsinline autoplay></video>
+                  <div class="call-screen-frame" id="callScreenFrame" hidden>
+                    <video id="screenCallVideo" class="call-video call-video--screen" playsinline autoplay muted></video>
+                  </div>
+                  <video id="localCallVideo" class="call-video call-video--local" playsinline autoplay muted></video>
+                </div>
+              </section>
+
+              <div class="call-controls" id="callControls">
+                <button type="button" id="callMuteBtn" class="call-control" title="Mute" aria-label="Mute microphone" aria-pressed="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/>
+                    <path d="M19 11a7 7 0 0 1-14 0M12 18v3"/>
+                  </svg>
+                </button>
+                <button type="button" id="callDeafenBtn" class="call-control" title="Deafen" aria-label="Deafen" aria-pressed="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M3 10v4h3l4 4V6L6 10H3z"/>
+                    <path d="M16 9.5a4 4 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10"/>
+                  </svg>
+                </button>
+                <button type="button" id="callVideoToggleBtn" class="call-control" title="Camera" aria-label="Toggle camera" aria-pressed="false" hidden>
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="2.5" y="6" width="13" height="12" rx="2"/>
+                    <path d="m22 7-5.5 3.5v3L22 17V7z"/>
+                  </svg>
+                </button>
+                <button type="button" id="callScreenBtn" class="call-control" title="Share screen" aria-label="Share screen" aria-pressed="false">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <rect x="2.5" y="4" width="19" height="13" rx="2"/>
+                    <path d="M8 21h8M12 17v4"/>
+                  </svg>
+                </button>
+                <button type="button" id="callDockHangupBtn" class="call-control call-control--hangup" title="Leave call" aria-label="Leave call">
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M10.7 13.3a16 16 0 0 1-3-3l1.4-1.4a2 2 0 0 0 .5-2.1 12 12 0 0 0-.6-2.6A2 2 0 0 0 7 2.5H4.8A2 2 0 0 0 2.8 4.5c.2 2.2.8 4.3 1.8 6.2M13.3 10.7a16 16 0 0 1 3 3l1.4-1.4a2 2 0 0 1 2.1-.5c.9.3 1.8.5 2.6.6a2 2 0 0 1 1.7 2.1v2.2a2 2 0 0 1-2.2 2 19.5 19.5 0 0 1-6.2-1.8"/>
+                    <path d="m4 4 16 16"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+    <div id="incomingCallBanner" class="incoming-call" hidden>
+      <div class="incoming-call-copy">
+        <strong id="incomingCallTitle">Incoming call</strong>
+        <span id="incomingCallMeta" class="settings-muted"></span>
+      </div>
+      <div class="incoming-call-actions">
+        <button type="button" id="incomingCallAccept" class="incoming-call-accept">Accept</button>
+        <button type="button" id="incomingCallReject" class="ghost">Decline</button>
+      </div>
+    </div>
+    <div
+      id="imageLightbox"
+      class="image-lightbox"
+      hidden
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image preview"
+    >
+      <button
+        type="button"
+        class="image-lightbox-scrim"
+        id="imageLightboxScrim"
+        aria-label="Close image preview"
+      ></button>
+      <div class="image-lightbox-panel">
+        <header class="image-lightbox-top">
+          <div class="image-lightbox-top-left">
+            <button
+              type="button"
+              id="imageLightboxClose"
+              class="image-lightbox-back"
+              title="Close"
+              aria-label="Close"
+            >
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M19 12H5"/>
+                <path d="m12 19-7-7 7-7"/>
+              </svg>
+            </button>
+            <span id="imageLightboxName" class="image-lightbox-name" title=""></span>
+          </div>
+          <div class="image-lightbox-top-right">
+            <div class="image-lightbox-zoom" role="group" aria-label="Zoom">
+              <button
+                type="button"
+                id="imageLightboxZoomOut"
+                class="image-lightbox-zoom-btn"
+                title="Zoom out"
+                aria-label="Zoom out"
+              >
+                −
+              </button>
+              <button
+                type="button"
+                id="imageLightboxZoomLabel"
+                class="image-lightbox-zoom-label"
+                title="Reset zoom"
+              >
+                100%
+              </button>
+              <button
+                type="button"
+                id="imageLightboxZoomIn"
+                class="image-lightbox-zoom-btn"
+                title="Zoom in"
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+            </div>
+            <button type="button" id="imageLightboxDownload" class="image-lightbox-download">
+              <svg class="ui-icon ui-icon--sm ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M12 4v12"/>
+                <path d="m7 11 5 5 5-5"/>
+                <path d="M5 20h14"/>
+              </svg>
+              <span>Download</span>
+            </button>
+          </div>
+        </header>
+        <div class="image-lightbox-stage" id="imageLightboxStage">
+          <img id="imageLightboxImg" class="image-lightbox-img" alt="" draggable="false" />
+        </div>
+      </div>
+    </div>
+    <script defer src="/blurhash.js"></script>
+    <script defer src="/media-prefs.js"></script>
+    <script defer src="/voip.js"></script>
+    <script defer src="/i18n.js"></script>
+    <script defer src="/app.js"></script>
+  </body>
+</html>

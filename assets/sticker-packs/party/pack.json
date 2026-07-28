@@ -1,0 +1,48 @@
+{
+  "id": "bundled-party",
+  "name": "Party",
+  "source": "bundled",
+  "dirName": "party",
+  "stickers": [
+    {
+      "id": "party-party",
+      "fileName": "00-party.svg",
+      "emoji": "\ud83e\udd73"
+    },
+    {
+      "id": "party-star",
+      "fileName": "01-star.svg",
+      "emoji": "\u2b50"
+    },
+    {
+      "id": "party-rocket",
+      "fileName": "02-rocket.svg",
+      "emoji": "\ud83d\ude80"
+    },
+    {
+      "id": "party-cake",
+      "fileName": "03-cake.svg",
+      "emoji": "\ud83c\udf82"
+    },
+    {
+      "id": "party-gift",
+      "fileName": "04-gift.svg",
+      "emoji": "\ud83c\udf81"
+    },
+    {
+      "id": "party-balloon",
+      "fileName": "05-balloon.svg",
+      "emoji": "\ud83c\udf88"
+    },
+    {
+      "id": "party-sparkle",
+      "fileName": "06-sparkle.svg",
+      "emoji": "\u2728"
+    },
+    {
+      "id": "party-trophy",
+      "fileName": "07-trophy.svg",
+      "emoji": "\ud83c\udfc6"
+    }
+  ]
+}

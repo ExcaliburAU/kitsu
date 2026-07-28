@@ -1,0 +1,6 @@
+{
+  "name": "relay-hello",
+  "displayName": "Relay Hello",
+  "version": "0.1.0",
+  "description": "Sample plugin — logs sync and timeline events"
+}

@@ -1,0 +1,109 @@
+/**
+ * Extra theme packs load from a dedicated Themes repository via ThemeHost
+ * (`/api/themes`, `/api/themes/:id/css`). Built-in tokens live in style.css.
+ */
+
+[data-theme='dark'] {
+  color-scheme: dark;
+  --rosewater: #f2f3f5;
+  --mauve: #b5bac1;
+  --red: #f23f43;
+  --green: #23a559;
+  --teal: #1abc9c;
+  --blue: #00a8fc;
+  --lavender: #9b84ee;
+  --peach: #f0b232;
+  --yellow: #f0b232;
+  --text: #f2f3f5;
+  --text-soft: #dbdee1;
+  --text-muted: #949ba4;
+  --line: #3f4147;
+  --line-strong: #4e5058;
+  --surface: #2b2d31;
+  --surface-hover: #35373c;
+  --bg: #313338;
+  --primary: #5865f2;
+  --primary-hover: #4752c4;
+  --ok: #23a559;
+  --error: #f23f43;
+  --on-primary: #ffffff;
+  --panel: rgba(43, 45, 49, 0.98);
+  --panel-muted: rgba(30, 31, 34, 0.72);
+  --control-bg: #1e1f22;
+  --seg-bg: #1e1f22;
+  --glow-a: rgba(88, 101, 242, 0.2);
+  --glow-b: rgba(88, 101, 242, 0.1);
+  --accent-line: rgba(88, 101, 242, 0.45);
+  --focus-ring: rgba(88, 101, 242, 0.42);
+  --rail-active-fill: rgba(88, 101, 242, 0.18);
+}
+
+[data-theme='midnight'] {
+  color-scheme: dark;
+  --rosewater: #e0e7ff;
+  --mauve: #a5b4fc;
+  --red: #f87171;
+  --green: #4ade80;
+  --teal: #2dd4bf;
+  --blue: #60a5fa;
+  --lavender: #c4b5fd;
+  --peach: #fb923c;
+  --yellow: #facc15;
+  --text: #e0e7ff;
+  --text-soft: #c7d2fe;
+  --text-muted: #94a3b8;
+  --line: #1e293b;
+  --line-strong: #334155;
+  --surface: #0f172a;
+  --surface-hover: #1e293b;
+  --bg: #020617;
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --ok: #4ade80;
+  --error: #f87171;
+  --on-primary: #ffffff;
+  --panel: rgba(15, 23, 42, 0.96);
+  --panel-muted: rgba(2, 6, 23, 0.7);
+  --control-bg: #0f172a;
+  --seg-bg: #020617;
+  --glow-a: rgba(99, 102, 241, 0.2);
+  --glow-b: rgba(99, 102, 241, 0.1);
+  --accent-line: rgba(99, 102, 241, 0.45);
+  --focus-ring: rgba(129, 140, 248, 0.4);
+  --rail-active-fill: rgba(99, 102, 241, 0.16);
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --rosewater: #1e1b4b;
+  --mauve: #6d28d9;
+  --red: #dc2626;
+  --green: #16a34a;
+  --teal: #0d9488;
+  --blue: #2563eb;
+  --lavender: #7c3aed;
+  --peach: #ea580c;
+  --yellow: #ca8a04;
+  --text: #1e1b4b;
+  --text-soft: #312e81;
+  --text-muted: #64748b;
+  --line: #dbe1ea;
+  --line-strong: #cbd5e1;
+  --surface: #ffffff;
+  --surface-hover: #f1f5f9;
+  --bg: #e8ebf2;
+  --primary: #5865f2;
+  --primary-hover: #4752c4;
+  --ok: #16a34a;
+  --error: #dc2626;
+  --on-primary: #ffffff;
+  --panel: rgba(255, 255, 255, 0.96);
+  --panel-muted: rgba(232, 235, 242, 0.85);
+  --control-bg: #ffffff;
+  --seg-bg: #e8ebf2;
+  --glow-a: rgba(88, 101, 242, 0.14);
+  --glow-b: rgba(88, 101, 242, 0.08);
+  --accent-line: rgba(88, 101, 242, 0.4);
+  --focus-ring: rgba(88, 101, 242, 0.35);
+  --rail-active-fill: rgba(88, 101, 242, 0.14);
+}

@@ -1,0 +1,48 @@
+{
+  "id": "bundled-faces",
+  "name": "Faces",
+  "source": "bundled",
+  "dirName": "faces",
+  "stickers": [
+    {
+      "id": "faces-smile",
+      "fileName": "00-smile.svg",
+      "emoji": "\ud83d\ude0a"
+    },
+    {
+      "id": "faces-grin",
+      "fileName": "01-grin.svg",
+      "emoji": "\ud83d\ude04"
+    },
+    {
+      "id": "faces-wink",
+      "fileName": "02-wink.svg",
+      "emoji": "\ud83d\ude09"
+    },
+    {
+      "id": "faces-cool",
+      "fileName": "03-cool.svg",
+      "emoji": "\ud83d\ude0e"
+    },
+    {
+      "id": "faces-love",
+      "fileName": "04-love.svg",
+      "emoji": "\ud83d\ude0d"
+    },
+    {
+      "id": "faces-sad",
+      "fileName": "05-sad.svg",
+      "emoji": "\ud83d\ude22"
+    },
+    {
+      "id": "faces-wow",
+      "fileName": "06-wow.svg",
+      "emoji": "\ud83d\ude2e"
+    },
+    {
+      "id": "faces-sleepy",
+      "fileName": "07-sleepy.svg",
+      "emoji": "\ud83d\ude34"
+    }
+  ]
+}
