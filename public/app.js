@@ -9427,16 +9427,38 @@
     bottomPinTimers = [];
   }
 
+  let messagePaintLock = 0;
+  let scrollBottomRaf = 0;
+  let scrollBottomQueuedForce = false;
+
   function scrollMessagesToBottom({ force = false } = {}) {
     if (!force && !stickMessagesToBottom) return;
-    scrollingMessagesProgrammatically = true;
-    stickMessagesToBottom = true;
-    const last = messageList.lastElementChild;
-    if (last && typeof last.scrollIntoView === 'function') {
-      last.scrollIntoView({ block: 'end', inline: 'nearest' });
+    if (force) {
+      stickMessagesToBottom = true;
+      scrollBottomQueuedForce = true;
     }
-    messageList.scrollTop = messageList.scrollHeight;
-    requestAnimationFrame(() => {
+    // Coalesce scroll storms from MutationObserver / image loads / pin timers.
+    if (scrollBottomRaf) return;
+    scrollBottomRaf = requestAnimationFrame(() => {
+      scrollBottomRaf = 0;
+      const forced = scrollBottomQueuedForce;
+      scrollBottomQueuedForce = false;
+      if (!forced && !stickMessagesToBottom) return;
+      if (messagePaintLock > 0) {
+        stickMessagesToBottom = true;
+        scrollBottomQueuedForce = true;
+        scrollBottomRaf = requestAnimationFrame(() => {
+          scrollBottomRaf = 0;
+          scrollMessagesToBottom({ force: true });
+        });
+        return;
+      }
+      scrollingMessagesProgrammatically = true;
+      stickMessagesToBottom = true;
+      const last = messageList.lastElementChild;
+      if (last && typeof last.scrollIntoView === 'function') {
+        last.scrollIntoView({ block: 'end', inline: 'nearest' });
+      }
       messageList.scrollTop = messageList.scrollHeight;
       requestAnimationFrame(() => {
         messageList.scrollTop = messageList.scrollHeight;
@@ -9451,7 +9473,7 @@
     clearBottomPinTimers();
     scrollMessagesToBottom({ force: true });
     // Composer/layout/previews/images can change height after the first paint.
-    for (const delay of [32, 100, 250, 500, 1000]) {
+    for (const delay of [48, 160, 400]) {
       bottomPinTimers.push(
         setTimeout(() => {
           if (!stickMessagesToBottom) return;
@@ -9462,7 +9484,7 @@
   }
 
   messageList.addEventListener('scroll', () => {
-    if (scrollingMessagesProgrammatically) return;
+    if (scrollingMessagesProgrammatically || messagePaintLock > 0) return;
     stickMessagesToBottom = isMessageListNearBottom();
     if (messageList.scrollTop < 120) {
       void loadOlderMessages();
@@ -9471,6 +9493,7 @@
 
   if (typeof ResizeObserver === 'function') {
     const messageResizeObserver = new ResizeObserver(() => {
+      if (messagePaintLock > 0) return;
       if (stickMessagesToBottom) scrollMessagesToBottom({ force: true });
     });
     messageResizeObserver.observe(messageList);
@@ -9479,6 +9502,7 @@
   // Child content growth (avatars, previews) does not resize the scroller box itself.
   if (typeof MutationObserver === 'function') {
     const messageMutationObserver = new MutationObserver(() => {
+      if (messagePaintLock > 0) return;
       if (stickMessagesToBottom) scrollMessagesToBottom({ force: true });
     });
     messageMutationObserver.observe(messageList, {
@@ -9666,93 +9690,104 @@
     layer.style.cssText = `left:${left}px;top:${top}px;width:${width}px;height:${height}px;`;
     document.body.appendChild(layer);
 
-    const count = 40;
+    const count = 28;
     const animations = [];
-    for (let i = 0; i < count; i += 1) {
-      const piece = document.createElement('span');
-      piece.className = 'emoji-confetti-piece';
-      piece.textContent = pool[i % pool.length];
+    const chunkSize = 7;
+    let index = 0;
 
-      // Even spray with a slight upward bias (Telegram-like).
-      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
-      const speed = 140 + Math.random() * 220;
-      const vx = Math.cos(angle) * speed;
-      // Prefer upward launch so gravity has room to pull them down.
-      const vy = Math.sin(angle) * speed * 0.75 - (90 + Math.random() * 140);
-      const gravity = 520 + Math.random() * 180;
-      const duration = 1100 + Math.random() * 400;
-      const tPeak = 0.35;
-      const tEnd = 1;
+    const spawnChunk = () => {
+      const end = Math.min(index + chunkSize, count);
+      for (; index < end; index += 1) {
+        const i = index;
+        const piece = document.createElement('span');
+        piece.className = 'emoji-confetti-piece';
+        piece.textContent = pool[i % pool.length];
 
-      const posAt = (t) => {
-        const sec = (duration / 1000) * t;
-        return {
-          x: originX + vx * sec,
-          y: originY + vy * sec + 0.5 * gravity * sec * sec,
+        const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.35;
+        const speed = 140 + Math.random() * 220;
+        const vx = Math.cos(angle) * speed;
+        const vy = Math.sin(angle) * speed * 0.75 - (90 + Math.random() * 140);
+        const gravity = 520 + Math.random() * 180;
+        const duration = 1100 + Math.random() * 400;
+        const tPeak = 0.35;
+        const tEnd = 1;
+
+        const posAt = (t) => {
+          const sec = (duration / 1000) * t;
+          return {
+            x: originX + vx * sec,
+            y: originY + vy * sec + 0.5 * gravity * sec * sec,
+          };
         };
-      };
 
-      const startDist = Math.max(18, emojiRect.width * 0.2);
-      const startX = originX + Math.cos(angle) * startDist * 0.35;
-      const startY = originY + Math.sin(angle) * startDist * 0.35;
-      const peak = posAt(tPeak);
-      const end = posAt(tEnd);
-      const peakX = clamp(peak.x, -40, width + 40);
-      const peakY = clamp(peak.y, -40, height + 40);
-      const endX = clamp(end.x, -60, width + 60);
-      const endY = clamp(end.y, -60, height + 80);
-      const rot = (i % 2 === 0 ? 1 : -1) * (120 + Math.random() * 220);
-      // Spawn with the click — tiny jitter only, no post-click trickle.
-      const delay = Math.random() * 28;
+        const startDist = Math.max(18, emojiRect.width * 0.2);
+        const startX = originX + Math.cos(angle) * startDist * 0.35;
+        const startY = originY + Math.sin(angle) * startDist * 0.35;
+        const peak = posAt(tPeak);
+        const endPos = posAt(tEnd);
+        const peakX = clamp(peak.x, -40, width + 40);
+        const peakY = clamp(peak.y, -40, height + 40);
+        const endX = clamp(endPos.x, -60, width + 60);
+        const endY = clamp(endPos.y, -60, height + 80);
+        const rot = (i % 2 === 0 ? 1 : -1) * (120 + Math.random() * 220);
+        const delay = Math.random() * 28;
 
-      piece.style.fontSize = `${baseSize * (0.8 + Math.random() * 0.45)}px`;
-      piece.style.opacity = '0';
-      piece.style.transform = `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(0.55)`;
-      layer.appendChild(piece);
+        piece.style.fontSize = `${baseSize * (0.8 + Math.random() * 0.45)}px`;
+        piece.style.opacity = '0';
+        piece.style.transform = `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(0.55)`;
+        layer.appendChild(piece);
 
-      animations.push(
-        piece.animate(
-          [
+        animations.push(
+          piece.animate(
+            [
+              {
+                transform: `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(0.55) rotate(0deg)`,
+                opacity: 0,
+              },
+              {
+                transform: `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(1) rotate(${rot * 0.12}deg)`,
+                opacity: 1,
+                offset: 0.06,
+              },
+              {
+                transform: `translate3d(${peakX}px, ${peakY}px, 0) translate(-50%, -50%) scale(1.15) rotate(${rot * 0.55}deg)`,
+                opacity: 1,
+                offset: 0.38,
+              },
+              {
+                transform: `translate3d(${endX}px, ${endY}px, 0) translate(-50%, -50%) scale(0.85) rotate(${rot}deg)`,
+                opacity: 0,
+              },
+            ],
             {
-              transform: `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(0.55) rotate(0deg)`,
-              opacity: 0,
+              duration,
+              delay,
+              easing: 'linear',
+              fill: 'both',
             },
-            {
-              transform: `translate3d(${startX}px, ${startY}px, 0) translate(-50%, -50%) scale(1) rotate(${rot * 0.12}deg)`,
-              opacity: 1,
-              offset: 0.06,
-            },
-            {
-              transform: `translate3d(${peakX}px, ${peakY}px, 0) translate(-50%, -50%) scale(1.15) rotate(${rot * 0.55}deg)`,
-              opacity: 1,
-              offset: 0.38,
-            },
-            {
-              transform: `translate3d(${endX}px, ${endY}px, 0) translate(-50%, -50%) scale(0.85) rotate(${rot}deg)`,
-              opacity: 0,
-            },
-          ],
-          {
-            duration,
-            delay,
-            easing: 'linear',
-            fill: 'both',
-          },
-        ),
-      );
-    }
+          ),
+        );
+      }
+
+      if (index < count) {
+        requestAnimationFrame(spawnChunk);
+        return;
+      }
+
+      window.setTimeout(() => {
+        for (const anim of animations) {
+          try {
+            anim.cancel();
+          } catch {
+            // ignore
+          }
+        }
+        layer.remove();
+      }, 2800);
+    };
 
     emojiConfettiBusyUntil = Date.now() + 120;
-    window.setTimeout(() => {
-      for (const anim of animations) {
-        try {
-          anim.cancel();
-        } catch {
-          // ignore
-        }
-      }
-      layer.remove();
-    }, 2800);
+    requestAnimationFrame(spawnChunk);
   }
 
   function enableJumboEmojiConfetti(bodyEl, text) {
@@ -9763,16 +9798,20 @@
     const hit = document.createElement('button');
     hit.type = 'button';
     hit.className = 'jumbo-emoji-hit';
+    hit.tabIndex = -1;
     hit.setAttribute('aria-label', 'Play emoji confetti');
     while (bodyEl.firstChild) hit.appendChild(bodyEl.firstChild);
     bodyEl.appendChild(hit);
     bodyEl.dataset.confettiBound = '1';
 
+    // Keep composer focus — don't steal the caret when bursting.
+    hit.addEventListener('mousedown', (event) => {
+      event.preventDefault();
+    });
     hit.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
       burstEmojiConfetti(hit, emojis);
-      hit.blur();
     });
   }
 
@@ -10674,6 +10713,7 @@
     if (!roomId || typeof roomId !== 'string') return;
     const token = ++messageRefreshToken;
     void ensureMarkdown().catch(() => {});
+    let paintedMessages = false;
     try {
       let data;
       if (Array.isArray(presetMessages)) {
@@ -10740,6 +10780,8 @@
       messageScrollRoomId = roomId;
       lastMessagesFingerprint = fingerprint;
 
+      messagePaintLock += 1;
+      paintedMessages = true;
       messageList.innerHTML = '';
       applyMessageLayoutPrefs();
       const roomMeta = roomCatalog.find((entry) => entry.roomId === roomId);
@@ -11113,6 +11155,13 @@
       }
     } catch (error) {
       if (!quiet) console.error(error);
+    } finally {
+      if (paintedMessages) {
+        messagePaintLock = Math.max(0, messagePaintLock - 1);
+        if (messagePaintLock === 0 && stickMessagesToBottom) {
+          scrollMessagesToBottom({ force: true });
+        }
+      }
     }
   }
 
@@ -11162,6 +11211,7 @@
     clearMentions();
     autosizeComposer();
     closeComposerPanels();
+    composerInput.focus();
     if (typingIdleTimer) {
       clearTimeout(typingIdleTimer);
       typingIdleTimer = null;
@@ -11248,7 +11298,9 @@
       }
       clearPendingReply();
       clearPendingEdit();
-      await refreshMessages(activeRoomId, { pinBottom: true });
+      // Don't block the composer on a full timeline rebuild.
+      void refreshMessages(activeRoomId, { pinBottom: true });
+      composerInput.focus();
     } catch (error) {
       if (body || mentions.length > 0) {
         composerInput.value = body;
@@ -11257,6 +11309,7 @@
         autosizeComposer();
       }
       alert(error.message || String(error));
+      composerInput.focus();
     }
   });
 

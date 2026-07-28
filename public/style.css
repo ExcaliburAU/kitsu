@@ -38,9 +38,14 @@
   --ui-icon-sm: 18px;
   --ui-icon-btn: 40px;
   --pane-head-height: 56px;
+  /* Real text fonts first. Twemoji must never sit ahead of them — on Linux
+     AppImage (no Segoe UI) Chromium will otherwise pick Twemoji for digits
+     and numbers vanish from the whole UI. */
+  --font-sans: system-ui, "Segoe UI", Roboto, "Ubuntu", Cantarell, "Noto Sans",
+    "DejaVu Sans", "Helvetica Neue", Arial, sans-serif;
   --font-emoji: 'Twemoji_DISABLED';
-  --font-display: "Segoe UI", var(--font-emoji), "Helvetica Neue", sans-serif;
-  --font-body: "Segoe UI", var(--font-emoji), "Helvetica Neue", sans-serif;
+  --font-display: var(--font-sans);
+  --font-body: var(--font-sans);
 }
 
 /* Flat UI icons — shared size + optical centering */
@@ -114,7 +119,11 @@
 }
 
 html.twitter-emoji {
-  --font-emoji: Twemoji;
+  /* Emoji fonts only after text fonts so ASCII digits stay visible. */
+  --font-emoji: Twemoji, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+    "Android Emoji", emoji;
+  --font-display: var(--font-sans), var(--font-emoji);
+  --font-body: var(--font-sans), var(--font-emoji);
 }
 
 * {
