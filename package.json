@@ -1,6 +1,6 @@
 {
   "name": "relay",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "author": "ExcaliburAU",
   "description": "Relay — lean themeable Matrix desktop client with plugins",
