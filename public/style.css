@@ -38,9 +38,8 @@
   --ui-icon-sm: 18px;
   --ui-icon-btn: 40px;
   --pane-head-height: 56px;
-  /* Real text fonts first. Twemoji must never sit ahead of them — on Linux
-     AppImage (no Segoe UI) Chromium will otherwise pick Twemoji for digits
-     and numbers vanish from the whole UI. */
+  /* Text fonts only. Twemoji is layered on via unicode-range when enabled so
+     it never claims ASCII digits (AppImage Linux was showing blank numbers). */
   --font-sans: system-ui, "Segoe UI", Roboto, "Ubuntu", Cantarell, "Noto Sans",
     "DejaVu Sans", "Helvetica Neue", Arial, sans-serif;
   --font-emoji: 'Twemoji_DISABLED';
@@ -114,16 +113,36 @@
 
 @font-face {
   font-family: Twemoji;
-  src: url('/fonts/Twemoji.woff2') format('woff2');
+  src:
+    url('/fonts/Twemoji.woff2') format('woff2'),
+    url('/fonts/TwemojiMozilla.ttf') format('truetype');
   font-display: swap;
+  /* Emoji / symbol ranges only — keeps 0-9 and Latin on --font-sans. */
+  unicode-range:
+    U+00A9, U+00AE,
+    U+203C, U+2049,
+    U+20E3,
+    U+2122, U+2139,
+    U+2194-2199, U+21A9-21AA,
+    U+231A-231B, U+2328, U+23CF, U+23E9-23F3, U+23F8-23FA,
+    U+24C2,
+    U+25AA-25AB, U+25B6, U+25C0, U+25FB-25FE,
+    U+2600-27BF,
+    U+2934-2935,
+    U+2B05-2B07, U+2B1B-2B1C, U+2B50, U+2B55,
+    U+3030, U+303D, U+3297, U+3299,
+    U+FE0E, U+FE0F,
+    U+1F000-1FAFF;
 }
 
 html.twitter-emoji {
-  /* Emoji fonts only after text fonts so ASCII digits stay visible. */
+  /* Twemoji first for emoji codepoints; sans still wins for digits/text. */
   --font-emoji: Twemoji, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
     "Android Emoji", emoji;
-  --font-display: var(--font-sans), var(--font-emoji);
-  --font-body: var(--font-sans), var(--font-emoji);
+  --font-display: Twemoji, var(--font-sans), "Apple Color Emoji", "Segoe UI Emoji",
+    "Noto Color Emoji", emoji;
+  --font-body: Twemoji, var(--font-sans), "Apple Color Emoji", "Segoe UI Emoji",
+    "Noto Color Emoji", emoji;
 }
 
 * {
@@ -4957,6 +4976,7 @@ html.monochrome {
   align-items: center;
   gap: 0.45rem;
   min-height: 1.35rem;
+  height: 1.35rem;
   padding: 0 1.15rem 0.35rem;
   color: var(--text-muted);
   font-size: 0.82rem;
@@ -4964,7 +4984,10 @@ html.monochrome {
 }
 
 .typing-indicator[hidden] {
-  display: none !important;
+  /* Keep the slot so showing/hiding typers doesn't shove the composer. */
+  visibility: hidden;
+  display: flex !important;
+  pointer-events: none;
 }
 
 .typing-indicator-avatars {

@@ -2535,10 +2535,18 @@
     stickMessagesToBottom = true;
     messageScrollRoomId = null;
     lastMessagesFingerprint = '';
+    lastMessagesContentFingerprint = '';
     updateCallChrome();
     setMembersPanelOpen(membersPanelOpen);
     if (sharedMediaOpen) void refreshSharedMedia(lastId);
-    await refreshMessages(lastId, { pinBottom: true, history: true, limit: 200 });
+    // Fast first paint — don't block UI on deep history fetch.
+    await refreshMessages(lastId, { pinBottom: true, history: false, limit: 80 });
+    void refreshMessages(lastId, {
+      quiet: true,
+      history: true,
+      limit: 160,
+      preserveScroll: true,
+    });
     void refreshTypingIndicator();
     void refreshRooms();
   }
@@ -2571,10 +2579,17 @@
     stickMessagesToBottom = true;
     messageScrollRoomId = null;
     lastMessagesFingerprint = '';
+    lastMessagesContentFingerprint = '';
     updateCallChrome();
     setMembersPanelOpen(membersPanelOpen);
     await refreshRooms();
-    await refreshMessages(roomId, { pinBottom: true, history: true, limit: 200 });
+    await refreshMessages(roomId, { pinBottom: true, history: false, limit: 80 });
+    void refreshMessages(roomId, {
+      quiet: true,
+      history: true,
+      limit: 160,
+      preserveScroll: true,
+    });
   }
 
   function getSpaceOrder() {
@@ -2962,6 +2977,7 @@
     });
     if (activeRoomId === roomId) {
       lastMessagesFingerprint = '';
+      lastMessagesContentFingerprint = '';
       await refreshMessages(roomId, { quiet: true });
     }
     if (forumThread?.roomId === roomId && forumOpen) {
@@ -3175,6 +3191,7 @@
   let selectedNameplate = '';
   let messageRefreshToken = 0;
   let lastMessagesFingerprint = '';
+  let lastMessagesContentFingerprint = '';
   let activeRoomMessages = [];
   let timelineAtStart = true;
   let loadingOlderMessages = false;
@@ -6337,7 +6354,7 @@
       liveMessageRefreshRoomId = null;
       // Keep fingerprint so quiet refresh can no-op when nothing changed.
       if (id && activeRoomId === id) void refreshMessages(id, { quiet: true });
-    }, 180);
+    }, 320);
   }
 
   function scheduleLiveReceiptRefresh(roomId) {
@@ -6345,8 +6362,9 @@
     if (liveReceiptRefreshTimer) clearTimeout(liveReceiptRefreshTimer);
     liveReceiptRefreshTimer = window.setTimeout(() => {
       liveReceiptRefreshTimer = 0;
+      // Receipts alone shouldn't nuke the whole timeline — fold into quiet refresh.
       if (activeRoomId === roomId) void refreshMessages(roomId, { quiet: true });
-    }, 500);
+    }, 1200);
   }
 
   function scheduleLiveRoomsRefresh() {
@@ -8017,10 +8035,12 @@
       stickMessagesToBottom = true;
       messageScrollRoomId = null;
       lastMessagesFingerprint = '';
+      lastMessagesContentFingerprint = '';
     } else {
       stickMessagesToBottom = false;
       messageScrollRoomId = null;
       lastMessagesFingerprint = '';
+      lastMessagesContentFingerprint = '';
     }
     if (pinBottom) stickMessagesToBottom = true;
     updateCallChrome();
@@ -8028,9 +8048,17 @@
     if (sharedMediaOpen) void refreshSharedMedia(room.roomId);
     void refreshMessages(room.roomId, {
       pinBottom,
-      history: !sameRoom,
-      limit: sameRoom ? 150 : 200,
+      history: false,
+      limit: sameRoom ? 120 : 80,
     }).then(() => {
+      if (!sameRoom) {
+        void refreshMessages(room.roomId, {
+          quiet: true,
+          history: true,
+          limit: 160,
+          preserveScroll: true,
+        });
+      }
       if (!pendingScrollEventId) return;
       const eventId = pendingScrollEventId;
       pendingScrollEventId = null;
@@ -8969,6 +8997,7 @@
         );
         updatePinsBadge(result.pinnedCount);
         lastMessagesFingerprint = '';
+        lastMessagesContentFingerprint = '';
         await refreshMessages(target.roomId, { quiet: true });
         void refreshRooms();
       } else if (action === 'delete') {
@@ -8987,10 +9016,12 @@
           );
         } catch (error) {
           lastMessagesFingerprint = '';
+          lastMessagesContentFingerprint = '';
           await refreshMessages(roomId, { quiet: true });
           throw error;
         }
         lastMessagesFingerprint = '';
+        lastMessagesContentFingerprint = '';
         void refreshMessages(roomId, { quiet: true });
       }
     } catch (error) {
@@ -9494,6 +9525,8 @@
   if (typeof ResizeObserver === 'function') {
     const messageResizeObserver = new ResizeObserver(() => {
       if (messagePaintLock > 0) return;
+      // Typing/autosize shrinks the list by ~1px — don't scroll while composing.
+      if (document.activeElement === composerInput) return;
       if (stickMessagesToBottom) scrollMessagesToBottom({ force: true });
     });
     messageResizeObserver.observe(messageList);
@@ -10749,12 +10782,27 @@
       const messages = data.messages || [];
       activeRoomMessages = messages;
       if (typeof data.atStart === 'boolean') timelineAtStart = data.atStart;
-      const fingerprint = `${messages.length}|${messages
+      const contentFingerprint = `${messages.length}|${messages
         .map(
           (msg) =>
-            `${msg.eventId || ''}:${msg.ts || ''}:${msg.redacted ? 1 : 0}:${msg.body || ''}:${msg.imageUrl || ''}:${(msg.readBy || []).length}`,
+            `${msg.eventId || ''}:${msg.ts || ''}:${msg.redacted ? 1 : 0}:${msg.body || ''}:${msg.imageUrl || ''}:${msg.videoUrl || ''}`,
         )
         .join('|')}`;
+      const fingerprint = `${contentFingerprint}|rb:${messages
+        .map((msg) => (msg.readBy || []).length)
+        .join(',')}`;
+      // Quiet polls / receipt ticks: don't rebuild the DOM when only read receipts changed.
+      if (
+        quiet &&
+        !pinBottom &&
+        !preserveScroll &&
+        !history &&
+        messageScrollRoomId === roomId &&
+        contentFingerprint === lastMessagesContentFingerprint
+      ) {
+        lastMessagesFingerprint = fingerprint;
+        return;
+      }
       if (quiet && !pinBottom && !preserveScroll && fingerprint === lastMessagesFingerprint && messageScrollRoomId === roomId) {
         return;
       }
@@ -10779,6 +10827,7 @@
       }
       messageScrollRoomId = roomId;
       lastMessagesFingerprint = fingerprint;
+      lastMessagesContentFingerprint = contentFingerprint;
 
       messagePaintLock += 1;
       paintedMessages = true;
@@ -11574,8 +11623,16 @@
   }
 
   function autosizeComposer() {
-    composerInput.style.height = 'auto';
-    composerInput.style.height = `${Math.min(160, Math.max(40, composerInput.scrollHeight))}px`;
+    if (!composerInput) return;
+    const min = 40;
+    const max = 160;
+    const previous = composerInput.offsetHeight;
+    // Measure without collapsing to 'auto' (avoids 1px layout thrash).
+    composerInput.style.height = `${min}px`;
+    const next = Math.min(max, Math.max(min, composerInput.scrollHeight));
+    composerInput.style.height = `${next}px`;
+    // Composer growth resizes the message list — don't pin-scroll for tiny height tweaks.
+    if (Math.abs(next - previous) <= 2) return;
   }
 
   function setToolPressed(btn, pressed) {
