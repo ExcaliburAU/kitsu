@@ -10853,6 +10853,22 @@
       let lastMsgSender = null;
       let lastMsgTs = 0;
       const MESSAGE_GROUP_MS = 5 * 60 * 1000;
+      // Only the latest message you sent may show read receipts — sending again
+      // clears checks on older ones until peers catch up.
+      let latestMineEventId = null;
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        const candidate = messages[i];
+        if (!candidate?.isMine || candidate.redacted) continue;
+        if (candidate.systemKind) continue;
+        if (
+          candidate.type !== 'm.room.message' &&
+          !candidate.encrypted
+        ) {
+          continue;
+        }
+        latestMineEventId = candidate.eventId || null;
+        break;
+      }
       for (const msg of messages) {
         if (msg.redacted && !showHiddenEventsEnabled()) continue;
         if (msg.systemKind === 'membership' && hideMembershipEnabled()) continue;
@@ -11147,7 +11163,13 @@
           }
         }
 
-        if (msg.isMine && Array.isArray(msg.readBy) && msg.readBy.length > 0) {
+        if (
+          msg.isMine &&
+          msg.eventId &&
+          msg.eventId === latestMineEventId &&
+          Array.isArray(msg.readBy) &&
+          msg.readBy.length > 0
+        ) {
           const receipts = document.createElement('div');
           receipts.className = 'message-receipts';
           const names = msg.readBy
