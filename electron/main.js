@@ -2,7 +2,7 @@ const path = require('path');
 const { app, BrowserWindow, ipcMain, shell, Notification, desktopCapturer, session } = require('electron');
 const { startServer, stopServer } = require('../server');
 
-const PROTOCOL = 'relay';
+const PROTOCOL = 'conduit';
 
 /** @type {string | null} */
 let appUrl = null;
@@ -89,7 +89,7 @@ function registerProtocolHandler() {
     const status = refreshProtocolStatus();
     if (!ok && !status.registered) {
       status.ok = false;
-      status.message = `Windows did not accept ${PROTOCOL}:// registration. Try Repair again (don’t run Relay as Administrator).`;
+      status.message = `Windows did not accept ${PROTOCOL}:// registration. Try Repair again (don’t run Conduit as Administrator).`;
     } else if (status.registered) {
       status.message = `${PROTOCOL} is registered on ${process.platform}.`;
     }
@@ -214,7 +214,7 @@ function createWindow() {
   });
 
   if (!appUrl) {
-    throw new Error('Relay backend URL is not ready.');
+    throw new Error('Conduit backend URL is not ready.');
   }
 
   void mainWindow.loadURL(appUrl);
@@ -254,7 +254,7 @@ function focusMainWindow() {
 }
 
 ipcMain.handle('relay:app-info', () => ({
-  name: 'Relay',
+  name: 'Conduit',
   version: app.getVersion(),
   platform: process.platform,
   appPath: app.getAppPath(),
@@ -292,7 +292,7 @@ ipcMain.handle('relay:window-action', (event, action) => {
 ipcMain.handle('relay:show-notification', (event, payload = {}) => {
   if (!Notification.isSupported()) return { ok: false, reason: 'unsupported' };
 
-  const title = String(payload.title || 'Relay').slice(0, 120);
+  const title = String(payload.title || 'Conduit').slice(0, 120);
   const body = String(payload.body || '').slice(0, 240);
   const roomId = payload.roomId ? String(payload.roomId) : null;
 
@@ -329,7 +329,7 @@ ipcMain.handle('relay:clear-notifications', (_event, payload = {}) => {
 app.whenReady().then(async () => {
   const readyAt = Date.now();
   if (process.platform === 'win32') {
-    app.setAppUserModelId('dev.relay.app');
+    app.setAppUserModelId('app.conduit.desktop');
   }
 
   const dataDir = path.join(app.getPath('userData'), 'data');

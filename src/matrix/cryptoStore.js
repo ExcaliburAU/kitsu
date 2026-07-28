@@ -7,7 +7,7 @@ let activeDataDir = null;
 
 /**
  * Install a persistent IndexedDB polyfill for Node so matrix-js-sdk rust crypto
- * can keep Olm/Megolm keys across Relay restarts.
+ * can keep Olm/Megolm keys across Conduit restarts.
  */
 function ensureCryptoIndexedDb(dataDir) {
   const dir = path.resolve(dataDir);

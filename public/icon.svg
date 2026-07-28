@@ -1,11 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Relay">
-  <rect width="512" height="512" rx="164" ry="164" fill="#5865F2"/>
-  <g fill="none" stroke="#FFFFFF" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M318 92c52 18 93 59 111 111" stroke-width="28" opacity="0.9"/>
-    <path d="M298 136c34 14 60 40 74 74" stroke-width="28" opacity="0.7"/>
-    <path d="M132 372c-8-136 86-266 222-286 24-4 40 20 24 40-48 62-108 146-204 206-22 14-42 26-42 40z" fill="#FFFFFF" stroke="none"/>
-    <path d="M236 202 348 126" stroke-width="30"/>
-    <circle cx="366" cy="114" r="34" fill="#FFFFFF" stroke="none"/>
-    <path d="M168 352 224 432h74" stroke-width="30"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Conduit">
+  <defs>
+    <linearGradient id="c" x1="512" y1="160" x2="512" y2="864" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5ff0d0"/>
+      <stop offset="1" stop-color="#12b8a8"/>
+    </linearGradient>
+  </defs>
+  <rect width="1024" height="1024" rx="220" fill="#14161a"/>
+  <g fill="none" stroke="url(#c)" stroke-linecap="round" stroke-linejoin="round">
+    <path stroke-width="92" d="M690 300c-48-70-130-116-222-116-152 0-276 124-276 276s124 276 276 276c92 0 174-46 222-116"/>
+    <path stroke-width="46" d="M638 360c-34-48-90-80-154-80-106 0-192 86-192 192s86 192 192 192c64 0 120-32 154-80"/>
+    <circle cx="690" cy="300" r="34" fill="#14161a" stroke="url(#c)" stroke-width="28"/>
+    <circle cx="690" cy="724" r="34" fill="#14161a" stroke="url(#c)" stroke-width="28"/>
+    <circle cx="292" cy="512" r="28" fill="#14161a" stroke="url(#c)" stroke-width="24"/>
   </g>
 </svg>

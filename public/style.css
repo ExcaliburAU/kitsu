@@ -681,14 +681,22 @@ button:disabled {
 }
 
 .workspace-rail-orb--home {
-  background: var(--primary);
-  color: var(--on-primary);
+  background: #14161a;
+  color: transparent;
+  padding: 0;
 }
 
 .workspace-rail-orb--home .rail-home-icon {
-  width: 26px;
-  height: 26px;
+  width: 44px;
+  height: 44px;
+  max-width: none;
   display: block;
+  object-fit: cover;
+  object-position: center;
+  aspect-ratio: 1 / 1;
+  /* Crop past the PNG squircle's transparent corners so the orb clip stays clean */
+  transform: scale(1.18);
+  transform-origin: center;
 }
 
 .workspace-rail-orb--dms {

@@ -1040,7 +1040,7 @@
     if (!protocolHandlerStatus) return;
     if (!window.relayDesktop?.getProtocolStatus) {
       protocolHandlerStatus.textContent =
-        'Protocol handler is only available in the Relay desktop app.';
+        'Protocol handler is only available in the Conduit desktop app.';
       if (protocolRepairBtn) protocolRepairBtn.disabled = true;
       return;
     }
@@ -1049,8 +1049,8 @@
       protocolHandlerStatus.textContent =
         status?.message ||
         (status?.registered
-          ? `relay is registered on ${status.platform || 'this platform'}.`
-          : 'relay is not registered.');
+          ? `conduit is registered on ${status.platform || 'this platform'}.`
+          : 'conduit is not registered.');
       if (protocolRepairBtn) protocolRepairBtn.disabled = false;
     } catch (error) {
       protocolHandlerStatus.textContent = error.message || String(error);
@@ -1765,7 +1765,7 @@
       logout.className = 'ghost danger-text';
       logout.textContent = 'Logout';
       logout.addEventListener('click', () => {
-        if (!window.confirm('Log out of Relay on this device?')) return;
+        if (!window.confirm('Log out of Conduit on this device?')) return;
         void doLogout();
       });
       actions.append(logout);
@@ -1835,7 +1835,7 @@
         verify.disabled = !canVerifyOthers;
         verify.title = canVerifyOthers
           ? 'Cross-sign this device'
-          : 'Verify this Relay device first';
+          : 'Verify this Conduit device first';
         verify.addEventListener('click', async () => {
           try {
             await api(`/api/devices/${encodeURIComponent(device.deviceId)}/verify`, {
@@ -2065,7 +2065,7 @@
   function promptCryptoCredentials({ reset = false } = {}) {
     return new Promise((resolve) => {
       if (!cryptoSetupDialog || !cryptoSetupForm || !cryptoSetupRecoveryKey) {
-        window.alert('Encryption setup dialog is missing. Restart Relay.');
+        window.alert('Encryption setup dialog is missing. Restart Conduit.');
         resolve(null);
         return;
       }
@@ -2464,7 +2464,7 @@
     }
 
     const who = item.senderName || 'Someone';
-    const title = item.isDirect ? who : item.roomName || 'Relay';
+    const title = item.isDirect ? who : item.roomName || 'Conduit';
     const body = item.isDirect
       ? truncateNotifBody(item.body || 'New message')
       : truncateNotifBody(`${who}: ${item.body || 'New message'}`);
@@ -4534,7 +4534,7 @@
       });
       await refreshAccountSettings();
       if (activeRoomId) void refreshMessages(activeRoomId, { quiet: true });
-      window.alert('Profile style saved for Relay users');
+      window.alert('Profile style saved for Conduit users');
     } catch (error) {
       window.alert(error.message || String(error));
     }
@@ -6398,6 +6398,16 @@
         void confirmLoggedOut();
         return;
       }
+      if (data?.kind === 'emoji-confetti') {
+        if (data.roomId && data.roomId === activeRoomId) {
+          playRemoteEmojiConfetti({
+            emojis: data.emojis,
+            targetEventId: data.targetEventId,
+            sender: data.sender,
+          });
+        }
+        return;
+      }
       if (!data?.roomId || data.live === false) return;
 
       if (data.kind === 'receipt') {
@@ -6407,6 +6417,7 @@
 
       if (data.kind !== 'timeline') return;
       const type = String(data.type || '');
+      if (type === 'app.relay.emoji_confetti') return;
       const interesting =
         type === 'm.room.message' ||
         type === 'm.room.encrypted' ||
@@ -8872,12 +8883,12 @@
             body: JSON.stringify({ muted: !currentlyMuted }),
           });
         } catch {
-          // local mute still applies for Relay desktop alerts
+          // local mute still applies for Conduit desktop alerts
         }
         window.alert(
           currentlyMuted
-            ? 'Room unmuted for Relay notifications'
-            : 'Room muted for Relay notifications',
+            ? 'Room unmuted for Conduit notifications'
+            : 'Room muted for Conduit notifications',
         );
       } else if (action === 'invite') {
         openInviteDialog({ kind: 'room', id: roomId, name: room?.name || 'room' });
@@ -9692,16 +9703,12 @@
     return best?.rect || anchorEl.getBoundingClientRect();
   }
 
-  function burstEmojiConfetti(anchorEl, emojis) {
+  function burstEmojiConfetti(anchorEl, emojis, { sync = false, targetEventId = null } = {}) {
     const pool = (Array.isArray(emojis) ? emojis : []).filter(Boolean);
-    if (!pool.length || !anchorEl) return;
+    if (!pool.length) return;
     // Short debounce only — later clicks should stack more bursts, not wipe.
     if (Date.now() < emojiConfettiBusyUntil) return;
 
-    const emojiRect = resolveJumboEmojiRect(anchorEl);
-    if (!emojiRect || emojiRect.width < 4 || emojiRect.height < 4) return;
-
-    // Telegram-style: burst from the emoji across the chat stage with gravity.
     const host =
       document.getElementById('chatStage') ||
       document.querySelector('.timeline-pane') ||
@@ -9712,6 +9719,15 @@
     const top = hostRect.top;
     const width = Math.max(1, hostRect.width);
     const height = Math.max(1, hostRect.height);
+
+    let emojiRect = null;
+    if (anchorEl) emojiRect = resolveJumboEmojiRect(anchorEl);
+    if (!emojiRect || emojiRect.width < 4 || emojiRect.height < 4) {
+      const cx = left + width * 0.5;
+      const cy = top + height * 0.42;
+      emojiRect = { left: cx - 18, top: cy - 18, width: 36, height: 36 };
+    }
+
     const originX = emojiRect.left + emojiRect.width / 2 - left;
     const originY = emojiRect.top + emojiRect.height / 2 - top;
     const baseSize = Math.max(22, Math.min(emojiRect.height * 0.32, 36));
@@ -9821,9 +9837,42 @@
 
     emojiConfettiBusyUntil = Date.now() + 120;
     requestAnimationFrame(spawnChunk);
+
+    if (sync && activeRoomId) {
+      void api(`/api/rooms/${encodeURIComponent(activeRoomId)}/emoji-confetti`, {
+        method: 'POST',
+        body: JSON.stringify({
+          emojis: pool.slice(0, 8),
+          targetEventId: targetEventId || null,
+        }),
+      }).catch(() => {
+        // Confetti still plays locally even if sync fails (power levels / offline).
+      });
+    }
   }
 
-  function enableJumboEmojiConfetti(bodyEl, text) {
+  function playRemoteEmojiConfetti({ emojis, targetEventId = null, sender = null } = {}) {
+    if (sender && sessionUserId && sender === sessionUserId) return;
+    const pool = (Array.isArray(emojis) ? emojis : []).filter(Boolean);
+    if (!pool.length) return;
+
+    let anchor = null;
+    if (targetEventId && messageList) {
+      const article = messageList.querySelector(
+        `[data-event-id="${CSS.escape(String(targetEventId))}"]`,
+      );
+      anchor =
+        article?.querySelector('.jumbo-emoji-hit') ||
+        article?.querySelector('.body--jumbo-emoji') ||
+        article?.querySelector('.body') ||
+        article;
+    }
+    // Bypass local debounce so remote bursts always land.
+    emojiConfettiBusyUntil = 0;
+    burstEmojiConfetti(anchor, pool, { sync: false });
+  }
+
+  function enableJumboEmojiConfetti(bodyEl, text, { eventId = null } = {}) {
     if (!bodyEl || bodyEl.dataset.confettiBound === '1') return;
     const emojis = extractMessageEmojis(text);
     if (!emojis.length) return;
@@ -9844,7 +9893,10 @@
     hit.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      burstEmojiConfetti(hit, emojis);
+      burstEmojiConfetti(hit, emojis, {
+        sync: true,
+        targetEventId: eventId || bodyEl.closest('[data-event-id]')?.dataset?.eventId || null,
+      });
     });
   }
 
@@ -11129,7 +11181,9 @@
             if (isJumboEmojiMessage(displayBody || '')) {
               bodyEl.classList.add('body--jumbo-emoji');
               el.classList.add('message--jumbo-emoji');
-              enableJumboEmojiConfetti(bodyEl, displayBody || '');
+              enableJumboEmojiConfetti(bodyEl, displayBody || '', {
+                eventId: msg.eventId || null,
+              });
             }
             const fromBody = extractUrlsFromText(displayBody || '');
             const fromMsg = Array.isArray(msg.urls)
@@ -12787,7 +12841,7 @@
     writeNotifPref('relay.notifications', true);
     if (notificationsEnabled) notificationsEnabled.checked = true;
     await showDesktopNotification({
-      title: 'Relay',
+      title: 'Conduit',
       body: 'Test notification — you are set up.',
       roomId: activeRoomId,
     });
@@ -12997,7 +13051,7 @@
     applyTextSizePref();
   });
   clearCacheBtn?.addEventListener('click', () => {
-    if (!window.confirm('Clear local caches and reload Relay? Your login session is kept on the server.')) {
+    if (!window.confirm('Clear local caches and reload Conduit? Your login session is kept on the server.')) {
       return;
     }
     clearRelayCachesAndReload();
@@ -13018,7 +13072,7 @@
   });
   protocolRepairBtn?.addEventListener('click', async () => {
     if (!window.relayDesktop?.repairProtocol) {
-      window.alert('Protocol repair is only available in the Relay desktop app.');
+      window.alert('Protocol repair is only available in the Conduit desktop app.');
       return;
     }
     try {

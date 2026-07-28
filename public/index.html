@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Relay</title>
+    <title>Conduit</title>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
@@ -71,8 +71,8 @@
       <main id="loginView" class="login-view">
         <section class="login-panel">
           <div class="login-brand">
-            <img class="brand-mark brand-mark--logo" src="/icon.svg" alt="" width="40" height="40" />
-            <h1>Relay</h1>
+            <img class="brand-mark brand-mark--logo" src="/icon.png?v=2" alt="" width="40" height="40" />
+            <h1>Conduit</h1>
           </div>
           <p class="lede" data-i18n="login.lede">Lean Matrix client. Log into your Synapse (or any homeserver).</p>
           <form id="loginForm">
@@ -126,45 +126,7 @@
               aria-label="Direct messages"
             >
               <span class="workspace-rail-orb workspace-rail-orb--home" aria-hidden="true">
-                <svg class="rail-home-icon" viewBox="0 0 24 24" focusable="false">
-                  <path
-                    class="rail-home-icon__wave"
-                    d="M15.2 3.6a9.2 9.2 0 0 1 5.2 5.2"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                  />
-                  <path
-                    class="rail-home-icon__wave"
-                    d="M14.1 5.9a5.8 5.8 0 0 1 3.5 3.5"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    opacity="0.75"
-                  />
-                  <path
-                    d="M4.1 18.7c-.3-6.4 4-12.5 10.4-13.4 1.1-.2 1.85.95 1.15 1.85C13.2 10.1 10.4 14 5.9 16.9c-1 .7-2 1.2-1.8 1.8z"
-                    fill="currentColor"
-                  />
-                  <path
-                    d="M11.1 9.1 16.2 5.5"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.9"
-                    stroke-linecap="round"
-                  />
-                  <circle cx="17" cy="5" r="1.65" fill="currentColor" />
-                  <path
-                    d="M6.4 17.3 9 21h3.4"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.9"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                  />
-                </svg>
+                <img class="rail-home-icon" src="/icon.png?v=2" alt="" width="44" height="44" />
               </span>
             </button>
           </div>
@@ -2077,10 +2039,10 @@
                 <header class="settings-pane-title"><h3>About</h3></header>
 
                 <section class="about-hero">
-                  <img class="about-hero-icon" src="/icon.svg" alt="" width="72" height="72" />
+                  <img class="about-hero-icon" src="/icon.png?v=2" alt="" width="72" height="72" />
                   <div class="about-hero-copy">
                     <p class="about-hero-title">
-                      <span>Relay</span>
+                      <span>Conduit</span>
                       <span id="settingsVersion" class="about-hero-version">v0.1.0</span>
                     </p>
                     <p class="about-hero-tagline">Lean Matrix desktop client</p>
@@ -2103,7 +2065,7 @@
                     </div>
                     <div class="devtools-row">
                       <div>
-                        <p class="settings-row-title">Protocol Handler (relay://)</p>
+                        <p class="settings-row-title">Protocol Handler (conduit://)</p>
                         <p id="protocolHandlerStatus" class="settings-muted">Checking protocol registration…</p>
                       </div>
                       <div class="about-protocol-actions">

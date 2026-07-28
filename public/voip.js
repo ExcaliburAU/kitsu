@@ -1,6 +1,6 @@
 /**
- * Relay 1:1 WebRTC calls with Matrix signaling via the local API.
- * ICE/TURN comes from /api/voip/ice (homeserver + Relay TURN config).
+ * Conduit 1:1 WebRTC calls with Matrix signaling via the local API.
+ * ICE/TURN comes from /api/voip/ice (homeserver + Conduit TURN config).
  */
 (() => {
   const CALL_TIMEOUT_MS = 60_000;

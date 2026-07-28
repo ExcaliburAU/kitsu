@@ -72,7 +72,7 @@ function getRuntimeState() {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, name: 'relay', version: require('./package.json').version });
+  res.json({ ok: true, name: 'conduit', version: require('./package.json').version });
 });
 
 app.get('/api/sidebar', (_req, res) => {
@@ -1005,6 +1005,18 @@ app.post('/api/rooms/:roomId/messages/:eventId/react', async (req, res) => {
   }
 });
 
+app.post('/api/rooms/:roomId/emoji-confetti', async (req, res) => {
+  try {
+    const result = await matrix.sendEmojiConfetti(req.params.roomId, {
+      emojis: req.body?.emojis,
+      targetEventId: req.body?.targetEventId || req.body?.eventId || null,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
 app.post('/api/rooms/:roomId/send-image', async (req, res) => {
   try {
     if (req.body?.url) {
@@ -1489,7 +1501,7 @@ async function startServer(options = {}) {
           }
           startupPromise = null;
           console.log(
-            `Relay listening on http://${runtime.host}:${runtime.port} (listen ${Date.now() - bootStarted}ms)`,
+            `Conduit listening on http://${runtime.host}:${runtime.port} (listen ${Date.now() - bootStarted}ms)`,
           );
 
           // Session restore (crypto + sync) continues in background so Electron can open immediately.
@@ -1578,7 +1590,7 @@ module.exports = {
 
 if (require.main === module) {
   startServer().catch((error) => {
-    console.error('Failed to start Relay:', error);
+    console.error('Failed to start Conduit:', error);
     process.exit(1);
   });
 }

@@ -186,7 +186,7 @@ async function fetchYoutubeOEmbed(pageUrl) {
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'RelayLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+        'User-Agent': 'ConduitLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
       },
     });
     if (!response.ok) return null;
@@ -256,7 +256,7 @@ async function fetchLinkPreview(rawUrl) {
       signal: controller.signal,
       headers: {
         Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'User-Agent': 'RelayLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+        'User-Agent': 'ConduitLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
       },
     });
 

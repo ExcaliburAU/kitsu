@@ -27,7 +27,7 @@ async function loadRecoveryKeyHelpers() {
 }
 
 /**
- * Server-side Matrix session for Relay.
+ * Server-side Matrix session for Conduit.
  * Login + sync + room list against any homeserver (e.g. local Synapse).
  */
 class MatrixSession {
@@ -1089,7 +1089,8 @@ class MatrixSession {
         type === 'm.room.message' ||
         type === 'm.room.encrypted' ||
         type === 'm.room.redaction' ||
-        type === 'm.reaction'
+        type === 'm.reaction' ||
+        type === 'app.relay.emoji_confetti'
       );
     };
 
@@ -1150,14 +1151,24 @@ class MatrixSession {
       if (!this.ready) return;
 
       if (isChatTimelineType(type)) {
-        this.publishLive({
+        const payload = {
           kind: 'timeline',
           roomId: room.roomId,
           eventId: event.getId(),
           type,
           sender: event.getSender(),
           live: true,
-        });
+        };
+        if (type === 'app.relay.emoji_confetti') {
+          const content = event.getContent?.() || {};
+          payload.kind = 'emoji-confetti';
+          payload.emojis = Array.isArray(content.emojis)
+            ? content.emojis.map((entry) => String(entry || '')).filter(Boolean).slice(0, 12)
+            : [];
+          payload.targetEventId =
+            typeof content.target_event_id === 'string' ? content.target_event_id : null;
+        }
+        this.publishLive(payload);
       }
 
       this.captureActivityFromEvent(event, room);
@@ -1520,7 +1531,7 @@ class MatrixSession {
     const loginBody = {
       user: userId,
       password: String(password || ''),
-      initial_device_display_name: deviceName || 'Relay Desktop',
+      initial_device_display_name: deviceName || 'Conduit Desktop',
     };
 
     if (!loginBody.user || !loginBody.password) {
@@ -2617,7 +2628,7 @@ class MatrixSession {
     if (!crypto) throw new Error('Crypto is not available');
     const crossSigningReady = Boolean(await crypto.isCrossSigningReady?.());
     if (!crossSigningReady) {
-      throw new Error('Verify this Relay device first, then you can verify others.');
+      throw new Error('Verify this Conduit device first, then you can verify others.');
     }
     if (typeof crypto.crossSignDevice !== 'function') {
       throw new Error('Device verification is not supported by this crypto stack');
@@ -4715,6 +4726,31 @@ class MatrixSession {
       removed: false,
       eventId: result?.event_id || result?.eventId || null,
       key: emoji,
+    };
+  }
+
+  async sendEmojiConfetti(roomId, { emojis = [], targetEventId = null } = {}) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const pool = (Array.isArray(emojis) ? emojis : [])
+      .map((entry) => String(entry || '').trim())
+      .filter(Boolean)
+      .slice(0, 12);
+    if (!pool.length) throw new Error('Emoji list is required');
+
+    const content = {
+      emojis: pool,
+      msgtype: 'app.relay.emoji_confetti',
+    };
+    const target = String(targetEventId || '').trim();
+    if (target) content.target_event_id = target;
+
+    const result = await this.client.sendEvent(roomId, 'app.relay.emoji_confetti', content);
+    return {
+      ok: true,
+      eventId: result?.event_id || result?.eventId || null,
+      emojis: pool,
     };
   }
 
