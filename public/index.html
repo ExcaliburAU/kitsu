@@ -629,6 +629,12 @@
               <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H8l-4 3V5a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2z"/><path d="M12 8v5M9.5 10.5h5"/></svg>
             </span>
           </button>
+          <button type="button" class="space-menu-item" data-message-action="forward" role="menuitem">
+            <span>Forward</span>
+            <span class="space-menu-icon" aria-hidden="true">
+              <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M15 14h5V9"/><path d="M4 18a8 8 0 0 1 8-8h8"/></svg>
+            </span>
+          </button>
           <button type="button" class="space-menu-item" data-message-action="edit" role="menuitem">
             <span>Edit Message</span>
             <span class="space-menu-icon" aria-hidden="true">
@@ -690,9 +696,9 @@
         </dialog>
 
         <dialog id="messageReceiptsDialog" class="space-dialog">
-          <form method="dialog" class="space-dialog-card">
+          <form method="dialog" class="space-dialog-card message-receipts-card">
             <header class="create-room-head">
-              <h3>Read Receipts</h3>
+              <h3>Seen by</h3>
               <button type="submit" class="ghost create-room-close" aria-label="Close">×</button>
             </header>
             <ul id="messageReceiptsList" class="message-receipts-list"></ul>
@@ -727,6 +733,15 @@
             <span class="space-menu-icon" aria-hidden="true">
               <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24"><path d="M6 9a6 6 0 0 1 12 0c0 7 3 7 3 7H3s3 0 3-7"/><path d="M10 19a2 2 0 0 0 4 0"/></svg>
             </span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="notif-all" role="menuitem">
+            <span>Notify: All messages</span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="notif-mentions" role="menuitem">
+            <span>Notify: Mentions only</span>
+          </button>
+          <button type="button" class="space-menu-item" data-room-action="notif-mute" role="menuitem">
+            <span>Notify: Mute</span>
           </button>
           <div class="space-menu-sep"></div>
           <button type="button" class="space-menu-item" data-room-action="voice" role="menuitem" disabled title="Coming soon">
@@ -769,9 +784,26 @@
         </div>
 
         <dialog id="roomSettingsDialog" class="space-dialog">
-          <form method="dialog" id="roomSettingsForm" class="space-dialog-card">
+          <form id="roomSettingsForm" class="space-dialog-card">
             <h3 id="roomSettingsTitle">Room Settings</h3>
             <p id="roomSettingsMeta" class="space-dialog-topic"></p>
+            <label>
+              Name
+              <input id="roomSettingsName" type="text" autocomplete="off" />
+            </label>
+            <label>
+              Topic
+              <textarea id="roomSettingsTopic" rows="3"></textarea>
+            </label>
+            <label>
+              Join rule
+              <select id="roomSettingsJoinRule">
+                <option value="invite">Invite only</option>
+                <option value="public">Public</option>
+                <option value="knock">Knock</option>
+                <option value="restricted">Restricted</option>
+              </select>
+            </label>
             <label>
               Room ID
               <input id="roomSettingsId" type="text" readonly />
@@ -780,8 +812,48 @@
               Link
               <input id="roomSettingsLink" type="text" readonly />
             </label>
+            <p id="roomSettingsError" class="space-dialog-error" hidden></p>
             <div class="space-dialog-actions">
-              <button type="submit" value="close" class="ghost">Close</button>
+              <button type="button" id="roomSettingsCancel" class="ghost" value="cancel">Close</button>
+              <button type="submit" id="roomSettingsSave">Save</button>
+            </div>
+          </form>
+        </dialog>
+
+        <dialog id="forwardMessageDialog" class="space-dialog">
+          <form id="forwardMessageForm" class="space-dialog-card">
+            <header class="create-room-head">
+              <h3>Forward to…</h3>
+              <button type="button" id="forwardMessageCancel" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <input id="forwardMessageSearch" type="search" placeholder="Search rooms" autocomplete="off" />
+            <ul id="forwardMessageList" class="forward-message-list"></ul>
+            <p id="forwardMessageError" class="space-dialog-error" hidden></p>
+          </form>
+        </dialog>
+
+        <dialog id="reactionDetailsDialog" class="space-dialog">
+          <form method="dialog" class="space-dialog-card message-receipts-card">
+            <header class="create-room-head">
+              <h3 id="reactionDetailsTitle">Reactions</h3>
+              <button type="submit" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <ul id="reactionDetailsList" class="message-receipts-list"></ul>
+          </form>
+        </dialog>
+
+        <dialog id="sasVerifyDialog" class="space-dialog">
+          <form id="sasVerifyForm" class="space-dialog-card">
+            <header class="create-room-head">
+              <h3>Compare emojis</h3>
+              <button type="button" id="sasVerifyCancel" class="ghost create-room-close" aria-label="Close">×</button>
+            </header>
+            <p class="space-dialog-topic">Confirm these emojis match on the other device.</p>
+            <div id="sasVerifyEmojis" class="sas-verify-emojis"></div>
+            <p id="sasVerifyError" class="space-dialog-error" hidden></p>
+            <div class="space-dialog-actions">
+              <button type="button" id="sasVerifyMismatch" class="ghost">They don’t match</button>
+              <button type="button" id="sasVerifyMatch">They match</button>
             </div>
           </form>
         </dialog>
@@ -1196,38 +1268,45 @@
               <div class="composer-dock">
               <div class="composer-shell">
                 <div class="composer-row">
-                  <button type="button" id="composerAttachBtn" class="composer-attach" title="Attach image" aria-label="Attach image" data-i18n="composer.attach" data-i18n-attr="title aria-label">
-                    <span aria-hidden="true">+</span>
+                  <button type="button" id="composerAttachBtn" class="composer-attach" title="Attach" aria-label="Attach" data-i18n="composer.attach" data-i18n-attr="title aria-label">
+                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9"/>
+                      <path d="M12 8v8M8 12h8"/>
+                    </svg>
                   </button>
                   <div class="composer-input-wrap">
                     <div id="composerMentions" class="composer-mentions" hidden></div>
                     <textarea
                       id="composerInput"
                       rows="1"
-                      placeholder="Send a message…" data-i18n="composer.placeholder" data-i18n-attr="placeholder"
+                      placeholder="Send a message..." data-i18n="composer.placeholder" data-i18n-attr="placeholder"
                       autocomplete="off"
+                      spellcheck="true"
                     ></textarea>
+                    <div id="composerAutocomplete" class="composer-autocomplete" hidden role="listbox" aria-label="Suggestions"></div>
                   </div>
-                  <button type="button" id="composerMarkdownBtn" class="composer-tool" title="Markdown" aria-label="Markdown formatting" aria-pressed="false">
-                    <span class="ui-icon-label" aria-hidden="true">Aa</span>
-                  </button>
-                  <button type="button" id="composerEmojiBtn" class="composer-tool" title="Emoji & stickers" aria-label="Emoji and stickers" aria-pressed="false">
-                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9"/>
-                      <path d="M8.5 14.5s1.8 2.2 3.5 2.2 3.5-2.2 3.5-2.2"/>
-                      <circle cx="9" cy="10" r="1" class="ui-icon--fill"/>
-                      <circle cx="15" cy="10" r="1" class="ui-icon--fill"/>
-                    </svg>
-                  </button>
-                  <button type="button" id="composerGifBtn" class="composer-tool" title="GIF" aria-label="GIF" aria-pressed="false">
-                    <span class="composer-gif-label" aria-hidden="true">GIF</span>
-                  </button>
-                  <button type="submit" id="composerSendBtn" class="composer-send" title="Send" aria-label="Send">
-                    <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
-                      <path d="M22 2 11 13"/>
-                      <path d="M22 2 15 22 11 13 2 9z"/>
-                    </svg>
-                  </button>
+                  <div class="composer-tools">
+                    <button type="button" id="composerMarkdownBtn" class="composer-tool" title="Markdown" aria-label="Markdown formatting" aria-pressed="false">
+                      <span class="ui-icon-label" aria-hidden="true">Aa</span>
+                    </button>
+                    <button type="button" id="composerEmojiBtn" class="composer-tool" title="Emoji & stickers" aria-label="Emoji and stickers" aria-pressed="false">
+                      <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9"/>
+                        <path d="M8.5 14.5s1.8 2.2 3.5 2.2 3.5-2.2 3.5-2.2"/>
+                        <circle cx="9" cy="10" r="1" class="ui-icon--fill"/>
+                        <circle cx="15" cy="10" r="1" class="ui-icon--fill"/>
+                      </svg>
+                    </button>
+                    <button type="button" id="composerGifBtn" class="composer-tool composer-tool--gif" title="GIF" aria-label="GIF" aria-pressed="false">
+                      <span class="composer-gif-label" aria-hidden="true">GIF</span>
+                    </button>
+                    <button type="submit" id="composerSendBtn" class="composer-send" title="Send" aria-label="Send">
+                      <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M22 2 11 13"/>
+                        <path d="M22 2 15 22 11 13 2 9z"/>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
                 <div id="composerMarkdownBar" class="composer-md-bar" hidden>
                   <button type="button" data-md="bold" title="Bold"><b>B</b></button>
@@ -1427,6 +1506,11 @@
                     Markdown formatting
                   </label>
                   <p class="settings-muted">Convert markdown to HTML when sending messages.</p>
+                  <label class="settings-check">
+                    <input id="prefSpellcheck" type="checkbox" checked />
+                    Spellcheck
+                  </label>
+                  <p class="settings-muted">Underline misspelled words in the message composer.</p>
                   <label class="settings-check">
                     <input id="prefHideActivity" type="checkbox" />
                     Hide typing &amp; read receipts
@@ -2274,6 +2358,7 @@
         </div>
       </div>
     </div>
+
     <script defer src="/blurhash.js"></script>
     <script defer src="/media-prefs.js"></script>
     <script defer src="/voip.js"></script>

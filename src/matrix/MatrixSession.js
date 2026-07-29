@@ -2775,8 +2775,19 @@ class MatrixSession {
     const byEvent = new Map();
     if (!room || !this.client) return byEvent;
     const myId = this.client.getUserId();
+    const liveEvents =
+      typeof room.getLiveTimeline === 'function'
+        ? room.getLiveTimeline()?.getEvents?.() || []
+        : [];
+    const eventIndex = new Map();
+    for (let i = 0; i < liveEvents.length; i += 1) {
+      const id = liveEvents[i]?.getId?.();
+      if (id) eventIndex.set(id, i);
+    }
+
     const members =
       typeof room.getJoinedMembers === 'function' ? room.getJoinedMembers() : [];
+    const readers = [];
     for (const member of members) {
       const userId = member?.userId;
       if (!userId || userId === myId) continue;
@@ -2789,14 +2800,47 @@ class MatrixSession {
         eventId = null;
       }
       if (!eventId) continue;
-      if (!byEvent.has(eventId)) byEvent.set(eventId, []);
-      byEvent.get(eventId).push({
+      readers.push({
         userId,
+        eventId,
+        index: eventIndex.has(eventId) ? eventIndex.get(eventId) : -1,
         displayName: this.getMemberDisplayName(room, userId),
         avatarUrl: this.getLocalProfileAvatarPath(userId, 24),
         hasAvatar: Boolean(this.getAvatarMxc(userId, room)),
       });
     }
+
+    // Matrix receipts are "read up to": anyone whose marker is at or after an
+    // event has seen that event (Paarrot/Cinny getUsersReadUpTo walk).
+    for (let i = 0; i < liveEvents.length; i += 1) {
+      const id = liveEvents[i]?.getId?.();
+      if (!id) continue;
+      const list = [];
+      for (const reader of readers) {
+        if (reader.index < i) continue;
+        list.push({
+          userId: reader.userId,
+          displayName: reader.displayName,
+          avatarUrl: reader.avatarUrl,
+          hasAvatar: reader.hasAvatar,
+        });
+      }
+      if (list.length) byEvent.set(id, list);
+    }
+
+    // Exact marker events missing from the live timeline still get their reader.
+    for (const reader of readers) {
+      if (byEvent.has(reader.eventId)) continue;
+      byEvent.set(reader.eventId, [
+        {
+          userId: reader.userId,
+          displayName: reader.displayName,
+          avatarUrl: reader.avatarUrl,
+          hasAvatar: reader.hasAvatar,
+        },
+      ]);
+    }
+
     return byEvent;
   }
 
@@ -3691,6 +3735,309 @@ class MatrixSession {
       return { ok: true, roomId, muted: Boolean(muted) };
     }
     throw new Error('Mute is not supported by this Matrix SDK build');
+  }
+
+  async setRoomNotificationLevel(roomId, level) {
+    if (!this.client) throw new Error('Not logged in');
+    const id = String(roomId || '').trim();
+    if (!id) throw new Error('Room id required');
+    const mode = String(level || 'all').toLowerCase();
+    if (!['all', 'mentions', 'mute'].includes(mode)) {
+      throw new Error('Level must be all, mentions, or mute');
+    }
+    // Mute uses the dedicated Matrix push helper; mentions/all clear mute and
+    // rely on client-side filtering for mentions-only (desktop alerts).
+    if (typeof this.client.setRoomMutePushRule === 'function') {
+      await this.client.setRoomMutePushRule('global', id, mode === 'mute');
+    }
+    return { ok: true, roomId: id, level: mode };
+  }
+
+  async updateRoomProfile(roomId, { name, topic, joinRule } = {}) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room || !this.isJoinedRoom(room)) throw new Error('Room not found');
+    const updates = {};
+    if (typeof name === 'string') {
+      const next = name.trim();
+      if (!next) throw new Error('Room name is required');
+      await this.client.sendStateEvent(roomId, 'm.room.name', { name: next }, '');
+      updates.name = next;
+    }
+    if (typeof topic === 'string') {
+      const next = topic.trim();
+      await this.client.sendStateEvent(roomId, 'm.room.topic', { topic: next }, '');
+      updates.topic = next;
+    }
+    if (typeof joinRule === 'string' && joinRule.trim()) {
+      const rule = joinRule.trim();
+      await this.client.sendStateEvent(roomId, 'm.room.join_rules', { join_rule: rule }, '');
+      updates.joinRule = rule;
+    }
+    return { ok: true, roomId, ...updates, room: this.serializeRoom(room) };
+  }
+
+  async moderateMember(roomId, userId, action, { reason } = {}) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room || !this.isJoinedRoom(room)) throw new Error('Room not found');
+    const user = String(userId || '').trim();
+    if (!user.startsWith('@')) throw new Error('Full Matrix user id required');
+    const act = String(action || '').toLowerCase();
+    const why = typeof reason === 'string' ? reason.trim() : undefined;
+    if (act === 'kick') {
+      await this.client.kick(roomId, user, why);
+    } else if (act === 'ban') {
+      await this.client.ban(roomId, user, why);
+    } else if (act === 'unban') {
+      await this.client.unban(roomId, user);
+    } else {
+      throw new Error('Action must be kick, ban, or unban');
+    }
+    return { ok: true, roomId, userId: user, action: act };
+  }
+
+  listRoomThreads(roomId) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room || !this.isJoinedRoom(room)) throw new Error('Room not found');
+    const threads = [];
+    const seen = new Set();
+
+    const pushThread = (rootEvent, replyCount = 0, latestTs = null) => {
+      if (!rootEvent) return;
+      const eventId = rootEvent.getId?.();
+      if (!eventId || seen.has(eventId)) return;
+      if (typeof rootEvent.isRedacted === 'function' && rootEvent.isRedacted()) return;
+      seen.add(eventId);
+      const content = rootEvent.getContent?.() || {};
+      const body =
+        typeof content.body === 'string'
+          ? content.body.replace(/\s+/g, ' ').trim().slice(0, 140)
+          : '';
+      const sender = rootEvent.getSender?.() || '';
+      threads.push({
+        rootEventId: eventId,
+        body: body || 'Thread',
+        sender,
+        senderName: this.getMemberDisplayName(room, sender),
+        replyCount: Number(replyCount) || 0,
+        latestTs: latestTs || rootEvent.getTs?.() || 0,
+        ts: rootEvent.getTs?.() || 0,
+      });
+    };
+
+    try {
+      const list = typeof room.getThreads === 'function' ? room.getThreads() : [];
+      for (const thread of list || []) {
+        const root = thread.rootEvent || room.findEventById?.(thread.id);
+        const replyCount =
+          typeof thread.length === 'number'
+            ? Math.max(0, thread.length - 1)
+            : (thread.events || []).length;
+        const latest =
+          thread.replyToEvent?.getTs?.() ||
+          thread.events?.[thread.events.length - 1]?.getTs?.() ||
+          null;
+        pushThread(root, replyCount, latest);
+      }
+    } catch {
+      // fall through to timeline scan
+    }
+
+    const replyCounts = new Map();
+    for (const event of room.getLiveTimeline?.().getEvents?.() || []) {
+      if (event.getType?.() !== 'm.room.message') continue;
+      if (typeof event.isRedacted === 'function' && event.isRedacted()) continue;
+      const relates = event.getContent?.()?.['m.relates_to'] || {};
+      if (relates.rel_type !== 'm.thread') continue;
+      const rootId = String(relates.event_id || '');
+      if (!rootId) continue;
+      const prev = replyCounts.get(rootId) || { count: 0, latestTs: 0 };
+      prev.count += 1;
+      prev.latestTs = Math.max(prev.latestTs, event.getTs?.() || 0);
+      replyCounts.set(rootId, prev);
+    }
+    for (const [rootId, meta] of replyCounts) {
+      if (seen.has(rootId)) {
+        const existing = threads.find((t) => t.rootEventId === rootId);
+        if (existing) {
+          existing.replyCount = Math.max(existing.replyCount, meta.count);
+          existing.latestTs = Math.max(existing.latestTs, meta.latestTs);
+        }
+        continue;
+      }
+      pushThread(room.findEventById?.(rootId), meta.count, meta.latestTs);
+    }
+
+    threads.sort((a, b) => (b.latestTs || 0) - (a.latestTs || 0));
+    return { ok: true, roomId, threads };
+  }
+
+  async forwardMessage(sourceRoomId, eventId, targetRoomId) {
+    if (!this.client) throw new Error('Not logged in');
+    const sourceRoom = this.client.getRoom(sourceRoomId);
+    const targetRoom = this.client.getRoom(targetRoomId);
+    if (!sourceRoom || !this.isJoinedRoom(sourceRoom)) throw new Error('Source room not found');
+    if (!targetRoom || !this.isJoinedRoom(targetRoom)) throw new Error('Target room not found');
+    const id = String(eventId || '').trim();
+    if (!id) throw new Error('Event id required');
+    const event = sourceRoom.findEventById?.(id);
+    if (!event) throw new Error('Message not found in timeline');
+    if (typeof event.isRedacted === 'function' && event.isRedacted()) {
+      throw new Error('Cannot forward a deleted message');
+    }
+    const content = { ...(event.getContent?.() || {}) };
+    delete content['m.relates_to'];
+    delete content['m.new_content'];
+    const msgtype = content.msgtype || 'm.text';
+    if (!content.body && msgtype === 'm.text') {
+      throw new Error('Nothing to forward');
+    }
+    const sender = event.getSender?.() || '';
+    const senderName = this.getMemberDisplayName(sourceRoom, sender);
+    if (typeof content.body === 'string' && content.body.trim()) {
+      content.body = `Forwarded from ${senderName}:\n${content.body}`;
+      if (typeof content.formatted_body === 'string') {
+        content.formatted_body = `<p><em>Forwarded from ${this.escapeHtml(
+          senderName,
+        )}</em></p>${content.formatted_body}`;
+        content.format = 'org.matrix.custom.html';
+      }
+    }
+    const sent = await this.client.sendEvent(targetRoomId, 'm.room.message', content);
+    return {
+      ok: true,
+      sourceRoomId,
+      targetRoomId,
+      eventId: sent?.event_id || sent?.eventId || null,
+    };
+  }
+
+  escapeHtml(value) {
+    return String(value || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  async startDeviceVerification(deviceId) {
+    if (!this.client) throw new Error('Not logged in');
+    const id = String(deviceId || '').trim();
+    if (!id) throw new Error('Device id required');
+    const crypto = this.client.getCrypto?.();
+    if (!crypto) throw new Error('Crypto is not available');
+    const myId = this.client.getUserId();
+    if (!myId) throw new Error('Not logged in');
+
+    if (typeof crypto.requestDeviceVerification !== 'function') {
+      // Fallback to cross-signing when interactive SAS is unavailable.
+      await this.verifyDevice(id);
+      return { ok: true, mode: 'cross-sign', deviceId: id };
+    }
+
+    const request = await crypto.requestDeviceVerification(myId, id);
+    this._pendingVerification = { request, deviceId: id, userId: myId };
+    if (typeof request.accept === 'function') {
+      try {
+        await request.accept();
+      } catch {
+        // other side may accept
+      }
+    }
+
+    const waitForVerifier = async () => {
+      if (request.verifier) return request.verifier;
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('Verification timed out')), 120000);
+        const onChange = () => {
+          if (request.verifier) {
+            clearTimeout(timer);
+            request.off?.('change', onChange);
+            resolve(request.verifier);
+          }
+          if (request.phase === 'done' || request.cancelled || request.done) {
+            clearTimeout(timer);
+            request.off?.('change', onChange);
+            reject(new Error('Verification ended before SAS'));
+          }
+        };
+        request.on?.('change', onChange);
+        onChange();
+      });
+    };
+
+    const verifier = await waitForVerifier();
+    let sasPayload = null;
+    const sasPromise = new Promise((resolve) => {
+      const onSas = (sas) => {
+        sasPayload = {
+          emojis: Array.isArray(sas?.sas?.emoji)
+            ? sas.sas.emoji.map((entry) => ({
+                emoji: entry?.[0] || entry?.emoji || '',
+                label: entry?.[1] || entry?.label || '',
+              }))
+            : [],
+          decimals: sas?.sas?.decimal || null,
+        };
+        resolve(sasPayload);
+      };
+      if (typeof verifier.once === 'function') verifier.once('show_sas', onSas);
+      else if (typeof verifier.on === 'function') verifier.on('show_sas', onSas);
+      // Newer API uses VerifierEvent.ShowSas via typed emitter; also try camelCase.
+      verifier.on?.('ShowSas', onSas);
+    });
+
+    // Kick off verify without awaiting — UI confirms SAS first.
+    const verifyPromise = verifier.verify?.() || Promise.resolve();
+    const sas = await Promise.race([
+      sasPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Waiting for emoji SAS timed out')), 60000)),
+    ]);
+
+    this._pendingVerification = {
+      request,
+      verifier,
+      verifyPromise,
+      deviceId: id,
+      userId: myId,
+      sas,
+    };
+    return { ok: true, mode: 'sas', deviceId: id, sas };
+  }
+
+  async confirmDeviceVerification(match) {
+    const pending = this._pendingVerification;
+    if (!pending?.verifier) throw new Error('No verification in progress');
+    const verifier = pending.verifier;
+    try {
+      if (match) {
+        if (typeof verifier.sasAgreement === 'function') await verifier.sasAgreement(true);
+        else if (typeof pending.request?.verifier?.sasAgreement === 'function') {
+          await pending.request.verifier.sasAgreement(true);
+        }
+        // Some builds expose confirmSASMatch / continueAfterShowSas
+        if (typeof verifier.confirmSASMatch === 'function') await verifier.confirmSASMatch();
+        await pending.verifyPromise;
+        try {
+          await this.verifyDevice(pending.deviceId);
+        } catch {
+          // cross-sign may already be done by SAS success
+        }
+        this._pendingVerification = null;
+        return { ok: true, matched: true, deviceId: pending.deviceId };
+      }
+      if (typeof verifier.cancel === 'function') await verifier.cancel('m.mismatched_sas');
+      else if (typeof pending.request?.cancel === 'function') {
+        await pending.request.cancel('m.mismatched_sas');
+      }
+      this._pendingVerification = null;
+      return { ok: true, matched: false, deviceId: pending.deviceId };
+    } catch (error) {
+      this._pendingVerification = null;
+      throw error;
+    }
   }
 
   listSpaceSidebar(spaceId) {
@@ -4591,10 +4938,17 @@ class MatrixSession {
       if (!emoji) return;
       let entry = byKey.get(emoji);
       if (!entry) {
-        entry = { key: emoji, count: 0, me: false, myEventId: null };
+        entry = { key: emoji, count: 0, me: false, myEventId: null, senders: [] };
         byKey.set(emoji, entry);
       }
       entry.count += 1;
+      if (sender) {
+        entry.senders.push({
+          userId: sender,
+          displayName: this.getMemberDisplayName(room, sender),
+          eventId: reactionEventId || null,
+        });
+      }
       if (myId && sender === myId) {
         entry.me = true;
         entry.myEventId = reactionEventId || entry.myEventId;

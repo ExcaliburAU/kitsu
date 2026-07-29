@@ -9,6 +9,8 @@ contextBridge.exposeInMainWorld('relayDesktop', {
   repairProtocol: () => ipcRenderer.invoke('relay:protocol-repair'),
   windowAction: (action) => ipcRenderer.invoke('relay:window-action', action),
   isWindowFocused: () => ipcRenderer.invoke('relay:window-focused'),
+  setSpellcheck: (enabled) => ipcRenderer.invoke('relay:set-spellcheck', Boolean(enabled)),
+  getSpellcheck: () => ipcRenderer.invoke('relay:get-spellcheck'),
   showNotification: (payload) => ipcRenderer.invoke('relay:show-notification', payload),
   clearNotifications: (payload) => ipcRenderer.invoke('relay:clear-notifications', payload || {}),
   onNotificationClick: (callback) => {

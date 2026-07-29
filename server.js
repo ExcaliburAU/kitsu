@@ -829,6 +829,84 @@ app.post('/api/rooms/:roomId/mute', async (req, res) => {
   }
 });
 
+app.post('/api/rooms/:roomId/notifications', async (req, res) => {
+  try {
+    const result = await matrix.setRoomNotificationLevel(
+      req.params.roomId,
+      req.body?.level || 'all',
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.patch('/api/rooms/:roomId', async (req, res) => {
+  try {
+    const result = await matrix.updateRoomProfile(req.params.roomId, {
+      name: req.body?.name,
+      topic: req.body?.topic,
+      joinRule: req.body?.joinRule || req.body?.join_rule,
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.post('/api/rooms/:roomId/members/:userId/moderate', async (req, res) => {
+  try {
+    const result = await matrix.moderateMember(
+      req.params.roomId,
+      decodeURIComponent(req.params.userId),
+      req.body?.action,
+      { reason: req.body?.reason },
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.get('/api/rooms/:roomId/threads', (req, res) => {
+  try {
+    res.json(matrix.listRoomThreads(req.params.roomId));
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.post('/api/rooms/:roomId/messages/:eventId/forward', async (req, res) => {
+  try {
+    const result = await matrix.forwardMessage(
+      req.params.roomId,
+      req.params.eventId,
+      req.body?.targetRoomId,
+    );
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.post('/api/devices/:deviceId/verify-sas', async (req, res) => {
+  try {
+    const result = await matrix.startDeviceVerification(req.params.deviceId);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.post('/api/devices/verify-sas/confirm', async (req, res) => {
+  try {
+    const result = await matrix.confirmDeviceVerification(req.body?.match !== false);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
 app.get('/api/rooms/:roomId/messages', async (req, res) => {
   if (!matrix.client) {
     res.status(401).json({ error: 'Not logged in' });

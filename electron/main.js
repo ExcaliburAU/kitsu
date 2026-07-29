@@ -1,5 +1,15 @@
 const path = require('path');
-const { app, BrowserWindow, ipcMain, shell, Notification, desktopCapturer, session } = require('electron');
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  shell,
+  Notification,
+  desktopCapturer,
+  session,
+  Menu,
+  MenuItem,
+} = require('electron');
 const { startServer, stopServer } = require('../server');
 
 const PROTOCOL = 'conduit';
@@ -19,6 +29,7 @@ let protocolStatus = {
   message: 'Not checked yet',
   platform: process.platform,
 };
+let spellcheckEnabled = true;
 
 /**
  * Dev (`electron .`) must register electron.exe + app path on Windows,
@@ -191,6 +202,78 @@ if (!gotLock) {
   });
 }
 
+function configureSpellChecker(enabled = true) {
+  spellcheckEnabled = Boolean(enabled);
+  const ses = session.defaultSession;
+  try {
+    if (typeof ses.setSpellCheckerEnabled === 'function') {
+      ses.setSpellCheckerEnabled(spellcheckEnabled);
+    }
+  } catch (error) {
+    console.warn('[relay] setSpellCheckerEnabled failed', error?.message || error);
+  }
+  if (!spellcheckEnabled) return;
+
+  try {
+    const available = Array.isArray(ses.availableSpellCheckerLanguages)
+      ? ses.availableSpellCheckerLanguages
+      : [];
+    const preferred = [];
+    const locale = String(app.getLocale?.() || 'en-US').replace(/_/g, '-');
+    for (const candidate of [locale, locale.split('-')[0], 'en-US', 'en-GB', 'en']) {
+      if (!candidate) continue;
+      const exact = available.find((lang) => lang.toLowerCase() === candidate.toLowerCase());
+      if (exact && !preferred.includes(exact)) preferred.push(exact);
+      const prefix = available.find((lang) =>
+        lang.toLowerCase().startsWith(`${candidate.toLowerCase().split('-')[0]}-`),
+      );
+      if (prefix && !preferred.includes(prefix)) preferred.push(prefix);
+    }
+    const languages = preferred.length ? preferred.slice(0, 2) : available.includes('en-US') ? ['en-US'] : available.slice(0, 1);
+    if (languages.length && typeof ses.setSpellCheckerLanguages === 'function') {
+      ses.setSpellCheckerLanguages(languages);
+      console.log('[relay] spellchecker languages:', languages.join(', '));
+    } else {
+      console.warn('[relay] no spellchecker languages available', { available: available.slice(0, 12) });
+    }
+  } catch (error) {
+    console.warn('[relay] setSpellCheckerLanguages failed', error?.message || error);
+  }
+}
+
+function attachSpellcheckContextMenu(win) {
+  if (!win?.webContents) return;
+  win.webContents.on('context-menu', (event, params) => {
+    if (!spellcheckEnabled) return;
+    const menu = new Menu();
+    let hasItems = false;
+
+    for (const suggestion of params.dictionarySuggestions || []) {
+      hasItems = true;
+      menu.append(
+        new MenuItem({
+          label: suggestion,
+          click: () => win.webContents.replaceMisspelling(suggestion),
+        }),
+      );
+    }
+
+    if (params.misspelledWord) {
+      hasItems = true;
+      menu.append(
+        new MenuItem({
+          label: 'Add to dictionary',
+          click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord),
+        }),
+      );
+    }
+
+    if (!hasItems) return;
+    event.preventDefault();
+    menu.popup({ window: win });
+  });
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, 'icon.ico');
   mainWindow = new BrowserWindow({
@@ -205,8 +288,12 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      spellcheck: true,
     },
   });
+
+  configureSpellChecker(spellcheckEnabled);
+  attachSpellcheckContextMenu(mainWindow);
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
@@ -258,6 +345,16 @@ ipcMain.handle('relay:app-info', () => ({
   version: app.getVersion(),
   platform: process.platform,
   appPath: app.getAppPath(),
+}));
+
+ipcMain.handle('relay:set-spellcheck', (_event, enabled) => {
+  configureSpellChecker(enabled !== false);
+  return { ok: true, enabled: spellcheckEnabled };
+});
+
+ipcMain.handle('relay:get-spellcheck', () => ({
+  enabled: spellcheckEnabled,
+  languages: session.defaultSession?.getSpellCheckerLanguages?.() || [],
 }));
 
 ipcMain.handle('relay:open-source', async () => {
@@ -345,6 +442,7 @@ app.whenReady().then(async () => {
   });
 
   appUrl = `http://127.0.0.1:${backend.port}`;
+  configureSpellChecker(true);
   createWindow();
   console.log(`[relay] window opened (+${Date.now() - readyAt}ms after app ready)`);
 

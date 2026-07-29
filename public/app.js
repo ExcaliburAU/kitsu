@@ -112,6 +112,7 @@
   const roomContextMenu = document.getElementById('roomContextMenu');
   const messageContextMenu = document.getElementById('messageContextMenu');
   const roomSettingsDialog = document.getElementById('roomSettingsDialog');
+  const roomSettingsForm = document.getElementById('roomSettingsForm');
   const roomSettingsTitle = document.getElementById('roomSettingsTitle');
   const roomSettingsMeta = document.getElementById('roomSettingsMeta');
   const roomSettingsId = document.getElementById('roomSettingsId');
@@ -367,6 +368,29 @@
   const twitterEmojiEnabled = document.getElementById('twitterEmojiEnabled');
   const prefEnterForNewline = document.getElementById('prefEnterForNewline');
   const prefMarkdownFormatting = document.getElementById('prefMarkdownFormatting');
+  const prefSpellcheck = document.getElementById('prefSpellcheck');
+  const composerAutocomplete = document.getElementById('composerAutocomplete');
+  const forwardMessageDialog = document.getElementById('forwardMessageDialog');
+  const forwardMessageForm = document.getElementById('forwardMessageForm');
+  const forwardMessageSearch = document.getElementById('forwardMessageSearch');
+  const forwardMessageList = document.getElementById('forwardMessageList');
+  const forwardMessageError = document.getElementById('forwardMessageError');
+  const forwardMessageCancel = document.getElementById('forwardMessageCancel');
+  const reactionDetailsDialog = document.getElementById('reactionDetailsDialog');
+  const reactionDetailsTitle = document.getElementById('reactionDetailsTitle');
+  const reactionDetailsList = document.getElementById('reactionDetailsList');
+  const sasVerifyDialog = document.getElementById('sasVerifyDialog');
+  const sasVerifyEmojis = document.getElementById('sasVerifyEmojis');
+  const sasVerifyError = document.getElementById('sasVerifyError');
+  const sasVerifyMatch = document.getElementById('sasVerifyMatch');
+  const sasVerifyMismatch = document.getElementById('sasVerifyMismatch');
+  const sasVerifyCancel = document.getElementById('sasVerifyCancel');
+  const roomSettingsName = document.getElementById('roomSettingsName');
+  const roomSettingsTopic = document.getElementById('roomSettingsTopic');
+  const roomSettingsJoinRule = document.getElementById('roomSettingsJoinRule');
+  const roomSettingsError = document.getElementById('roomSettingsError');
+  const roomSettingsCancel = document.getElementById('roomSettingsCancel');
+  const roomSettingsSave = document.getElementById('roomSettingsSave');
   const prefHideActivity = document.getElementById('prefHideActivity');
   const prefHour24 = document.getElementById('prefHour24');
   const prefDateFormat = document.getElementById('prefDateFormat');
@@ -462,7 +486,6 @@
   let viewingPackId = null;
   let accountDataExpanded = false;
   let accountDataEditMode = 'view'; // 'view' | 'create'
-
   const homeserverInput = document.getElementById('homeserver');
   const userInput = document.getElementById('user');
 
@@ -553,6 +576,9 @@
   /** @type {{ roomId: string, eventId: string, body: string|null, canRedact: boolean, sender: string|null }|null} */
   let contextMessage = null;
   let dragSpaceId = null;
+  let dragFolderId = null;
+  /** @type {{ mode: 'before'|'after'|'folder'|null, spaceId: string|null, folderId: string|null }} */
+  let railDropHint = { mode: null, spaceId: null, folderId: null };
   let pollTimer = null;
   let typingPollTimer = null;
   let typingIdleTimer = null;
@@ -962,13 +988,6 @@
     return readBoolPref('relay.developerTools', false);
   }
 
-  function setAccountDataError(message) {
-    if (!accountDataError) return;
-    const text = String(message || '').trim();
-    accountDataError.hidden = !text;
-    accountDataError.textContent = text;
-  }
-
   function applyDeveloperToolsVisibility() {
     const enabled = developerToolsEnabled();
     if (prefDeveloperTools) prefDeveloperTools.checked = enabled;
@@ -979,6 +998,13 @@
       if (devtoolsAccountDataBody) devtoolsAccountDataBody.hidden = true;
       if (devtoolsAccountDataToggle) devtoolsAccountDataToggle.textContent = 'Expand';
     }
+  }
+
+  function setAccountDataError(message) {
+    if (!accountDataError) return;
+    const text = String(message || '').trim();
+    accountDataError.hidden = !text;
+    accountDataError.textContent = text;
   }
 
   async function refreshAccountDataList() {
@@ -1556,6 +1582,7 @@
     if (prefMarkdownFormatting) {
       prefMarkdownFormatting.checked = readBoolPref('relay.markdownFormatting', true);
     }
+    applySpellcheckPref();
     if (prefHideActivity) prefHideActivity.checked = readBoolPref('relay.hideActivity', false);
     if (prefHour24) prefHour24.checked = readBoolPref('relay.hour24', false);
     if (prefDateFormat) prefDateFormat.value = readStringPref('relay.dateFormat', 'D MMM YYYY');
@@ -1838,10 +1865,7 @@
           : 'Verify this Conduit device first';
         verify.addEventListener('click', async () => {
           try {
-            await api(`/api/devices/${encodeURIComponent(device.deviceId)}/verify`, {
-              method: 'POST',
-              body: '{}',
-            });
+            await openSasVerifyDialog(device.deviceId);
             await refreshDevicesSettings();
             void refreshSecurityBadge();
           } catch (error) {
@@ -2437,8 +2461,10 @@
     };
   }
 
-  async function shouldSuppressNotification(roomId) {
-    if (getMutedRooms().has(roomId)) return true;
+  async function shouldSuppressNotification(roomId, item = null) {
+    const level = getRoomNotifLevel(roomId);
+    if (level === 'mute' || getMutedRooms().has(roomId)) return true;
+    if (level === 'mentions' && item && item.kind === 'message' && !item.highlight) return true;
     const focused = window.relayDesktop?.isWindowFocused
       ? await window.relayDesktop.isWindowFocused()
       : document.hasFocus() && !document.hidden;
@@ -2450,7 +2476,7 @@
     if (!item?.roomId) return;
     if (item.kind === 'message' && !readNotifPref('relay.notifications.messages', true)) return;
     if (item.kind === 'invite' && !readNotifPref('relay.notifications.invites', true)) return;
-    if (await shouldSuppressNotification(item.roomId)) return;
+    if (await shouldSuppressNotification(item.roomId, item)) return;
 
     if (item.kind === 'invite') {
       await showDesktopNotification({
@@ -2868,6 +2894,581 @@
     roomMoreBtn?.setAttribute('aria-expanded', 'false');
   }
 
+
+  let pendingForwardMessage = null;
+  let draftSaveTimer = 0;
+  let autocompleteState = { items: [], index: 0, start: 0, end: 0, kind: null };
+  let roomSettingsRoomId = null;
+
+  function spellcheckEnabled() {
+    return readBoolPref('relay.spellcheck', true);
+  }
+
+  function applySpellcheckPref() {
+    const on = spellcheckEnabled();
+    if (prefSpellcheck) prefSpellcheck.checked = on;
+    if (composerInput) {
+      composerInput.spellcheck = on;
+      composerInput.setAttribute('spellcheck', on ? 'true' : 'false');
+      // Chromium sometimes only re-evaluates after a focus pass.
+      if (document.activeElement === composerInput) {
+        composerInput.blur();
+        queueMicrotask(() => composerInput.focus());
+      }
+    }
+    if (window.relayDesktop?.setSpellcheck) {
+      void window.relayDesktop.setSpellcheck(on).catch(() => {});
+    }
+  }
+
+  function readDraftMap() {
+    try {
+      const raw = localStorage.getItem('relay.drafts');
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeDraftMap(map) {
+    localStorage.setItem('relay.drafts', JSON.stringify(map || {}));
+  }
+
+  function saveComposerDraft(roomId) {
+    const id = String(roomId || '').trim();
+    if (!id || !composerInput) return;
+    const body = String(composerInput.value || '');
+    const map = readDraftMap();
+    if (!body.trim() && (!pendingMentions || !pendingMentions.length)) {
+      delete map[id];
+    } else {
+      map[id] = {
+        body,
+        mentions: Array.isArray(pendingMentions) ? pendingMentions.map((m) => ({ ...m })) : [],
+      };
+    }
+    writeDraftMap(map);
+  }
+
+  function restoreComposerDraft(roomId) {
+    const id = String(roomId || '').trim();
+    if (!id || !composerInput) return;
+    const entry = readDraftMap()[id];
+    composerInput.value = entry?.body || '';
+    clearMentions();
+    if (Array.isArray(entry?.mentions)) {
+      for (const mention of entry.mentions) {
+        if (mention?.userId) addMention(mention);
+      }
+    }
+    autosizeComposer();
+  }
+
+  function clearComposerDraft(roomId) {
+    const id = String(roomId || '').trim();
+    if (!id) return;
+    const map = readDraftMap();
+    if (!(id in map)) return;
+    delete map[id];
+    writeDraftMap(map);
+  }
+
+  function scheduleDraftSave() {
+    if (!activeRoomId) return;
+    if (draftSaveTimer) clearTimeout(draftSaveTimer);
+    draftSaveTimer = window.setTimeout(() => {
+      draftSaveTimer = 0;
+      saveComposerDraft(activeRoomId);
+    }, 250);
+  }
+
+  function readRoomNotifLevels() {
+    try {
+      const raw = localStorage.getItem('relay.roomNotifLevels');
+      const parsed = raw ? JSON.parse(raw) : {};
+      return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+
+  function writeRoomNotifLevels(map) {
+    localStorage.setItem('relay.roomNotifLevels', JSON.stringify(map || {}));
+  }
+
+  function getRoomNotifLevel(roomId) {
+    const id = String(roomId || '');
+    const stored = readRoomNotifLevels()[id];
+    if (stored === 'all' || stored === 'mentions' || stored === 'mute') return stored;
+    if (getMutedRooms().has(id)) return 'mute';
+    return 'all';
+  }
+
+  async function setRoomNotifLevel(roomId, level) {
+    const id = String(roomId || '').trim();
+    const mode = String(level || 'all').toLowerCase();
+    if (!id || !['all', 'mentions', 'mute'].includes(mode)) return;
+    const map = readRoomNotifLevels();
+    map[id] = mode;
+    writeRoomNotifLevels(map);
+    const muted = getMutedRooms();
+    if (mode === 'mute') muted.add(id);
+    else muted.delete(id);
+    setMutedRooms(muted);
+    try {
+      await api(`/api/rooms/${encodeURIComponent(id)}/notifications`, {
+        method: 'POST',
+        body: JSON.stringify({ level: mode }),
+      });
+    } catch {
+      // local level still applies for desktop alerts
+    }
+  }
+
+  function hideComposerAutocomplete() {
+    autocompleteState = { items: [], index: 0, start: 0, end: 0, kind: null };
+    if (composerAutocomplete) {
+      composerAutocomplete.hidden = true;
+      composerAutocomplete.innerHTML = '';
+    }
+  }
+
+  function getComposerTokenAtCaret() {
+    if (!composerInput) return null;
+    const value = composerInput.value || '';
+    const caret = composerInput.selectionStart || 0;
+    const before = value.slice(0, caret);
+    const match = /(^|[\s([{])([@#:])([^\s]*)$/.exec(before);
+    if (!match) return null;
+    return {
+      kind: match[2],
+      query: match[3] || '',
+      start: caret - (match[3] || '').length - 1,
+      end: caret,
+    };
+  }
+
+  function renderComposerAutocomplete() {
+    if (!composerAutocomplete) return;
+    const { items, index } = autocompleteState;
+    if (!items.length) {
+      hideComposerAutocomplete();
+      return;
+    }
+    composerAutocomplete.innerHTML = '';
+    items.forEach((item, i) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `composer-autocomplete-item${i === index ? ' is-active' : ''}`;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', i === index ? 'true' : 'false');
+      const lead = document.createElement('span');
+      lead.className = 'composer-autocomplete-lead';
+      lead.textContent = item.lead || '';
+      const label = document.createElement('span');
+      label.className = 'composer-autocomplete-label';
+      label.textContent = item.label || '';
+      btn.appendChild(lead);
+      btn.appendChild(label);
+      btn.addEventListener('mousedown', (event) => {
+        event.preventDefault();
+        applyComposerAutocomplete(i);
+      });
+      composerAutocomplete.appendChild(btn);
+    });
+    composerAutocomplete.hidden = false;
+  }
+
+  function buildComposerAutocompleteItems(token) {
+    const q = String(token.query || '').toLowerCase();
+    if (token.kind === '@') {
+      return roomMembersCache
+        .filter((m) => {
+          const name = String(m.displayName || m.userId || '').toLowerCase();
+          const id = String(m.userId || '').toLowerCase();
+          return !q || name.includes(q) || id.includes(q);
+        })
+        .slice(0, 8)
+        .map((m) => ({
+          kind: 'mention',
+          lead: '@',
+          label: m.displayName || m.userId,
+          value: m,
+        }));
+    }
+    if (token.kind === '#') {
+      return roomCatalog
+        .filter((r) => {
+          const name = String(r.name || '').toLowerCase();
+          const alias = String(r.canonicalAlias || r.alias || '').toLowerCase();
+          return !q || name.includes(q) || alias.includes(q) || String(r.roomId || '').toLowerCase().includes(q);
+        })
+        .slice(0, 8)
+        .map((r) => ({
+          kind: 'room',
+          lead: '#',
+          label: r.name || r.canonicalAlias || r.roomId,
+          value: r,
+        }));
+    }
+    if (token.kind === ':') {
+      const entries = Object.entries(EMOJI_SHORTCODES || {})
+        .filter(([emoji, code]) => {
+          const c = String(code || '').toLowerCase();
+          return !q || c.includes(q) || String(emoji).includes(q);
+        })
+        .slice(0, 8);
+      // EMOJI_SHORTCODES maps emoji->code; also support reverse from common codes via Object
+      const fromCodes = [];
+      for (const [emoji, code] of Object.entries(EMOJI_SHORTCODES || {})) {
+        const c = String(code || '').replace(/^:|:$/g, '').toLowerCase();
+        if (q && !c.includes(q) && !String(emoji).includes(q)) continue;
+        fromCodes.push({
+          kind: 'emoji',
+          lead: emoji,
+          label: `:${c}:`,
+          value: emoji,
+        });
+        if (fromCodes.length >= 8) break;
+      }
+      return fromCodes.length ? fromCodes : entries.map(([emoji, code]) => ({
+        kind: 'emoji',
+        lead: emoji,
+        label: String(code),
+        value: emoji,
+      }));
+    }
+    return [];
+  }
+
+  function updateComposerAutocomplete() {
+    const token = getComposerTokenAtCaret();
+    if (!token) {
+      hideComposerAutocomplete();
+      return;
+    }
+    const items = buildComposerAutocompleteItems(token);
+    if (!items.length) {
+      hideComposerAutocomplete();
+      return;
+    }
+    autocompleteState = {
+      items,
+      index: 0,
+      start: token.start,
+      end: token.end,
+      kind: token.kind,
+    };
+    renderComposerAutocomplete();
+  }
+
+  function applyComposerAutocomplete(index = autocompleteState.index) {
+    const item = autocompleteState.items[index];
+    if (!item || !composerInput) return;
+    const value = composerInput.value || '';
+    const before = value.slice(0, autocompleteState.start);
+    const after = value.slice(autocompleteState.end);
+    if (item.kind === 'mention') {
+      composerInput.value = `${before}${after}`;
+      const caret = before.length;
+      composerInput.setSelectionRange(caret, caret);
+      addMention({
+        userId: item.value.userId,
+        displayName: item.value.displayName || item.value.userId,
+      });
+    } else if (item.kind === 'room') {
+      const insert = item.value.canonicalAlias || item.value.alias || item.value.name || item.value.roomId;
+      composerInput.value = `${before}${insert} ${after}`;
+      const caret = before.length + String(insert).length + 1;
+      composerInput.setSelectionRange(caret, caret);
+    } else if (item.kind === 'emoji') {
+      composerInput.value = `${before}${item.value} ${after}`;
+      const caret = before.length + String(item.value).length + 1;
+      composerInput.setSelectionRange(caret, caret);
+    }
+    hideComposerAutocomplete();
+    composerInput.focus();
+    autosizeComposer();
+    scheduleDraftSave();
+  }
+
+  function openReactionDetails(reaction) {
+    if (!reactionDetailsDialog || !reactionDetailsList) return;
+    const key = reaction?.key || 'Reactions';
+    if (reactionDetailsTitle) reactionDetailsTitle.textContent = key;
+    reactionDetailsList.innerHTML = '';
+    const senders = Array.isArray(reaction?.senders) ? reaction.senders : [];
+    if (!senders.length) {
+      const empty = document.createElement('li');
+      empty.className = 'message-receipts-empty';
+      empty.textContent = 'No reactors yet.';
+      reactionDetailsList.appendChild(empty);
+    } else {
+      for (const entry of senders) {
+        const li = document.createElement('li');
+        li.className = 'message-receipts-row';
+        const fallback = document.createElement('span');
+        fallback.className = 'message-receipts-avatar-fallback';
+        const name = entry.displayName || entry.userId || 'Unknown';
+        fallback.textContent = initials(name);
+        li.appendChild(fallback);
+        const label = document.createElement('span');
+        label.className = 'message-receipts-name';
+        label.textContent = name;
+        li.appendChild(label);
+        reactionDetailsList.appendChild(li);
+      }
+    }
+    if (typeof reactionDetailsDialog.showModal === 'function') reactionDetailsDialog.showModal();
+  }
+
+  function openForwardDialog(msg) {
+    pendingForwardMessage = msg;
+    if (forwardMessageError) {
+      forwardMessageError.hidden = true;
+      forwardMessageError.textContent = '';
+    }
+    if (forwardMessageSearch) forwardMessageSearch.value = '';
+    renderForwardRoomList('');
+    if (typeof forwardMessageDialog?.showModal === 'function') forwardMessageDialog.showModal();
+    queueMicrotask(() => forwardMessageSearch?.focus());
+  }
+
+  function renderForwardRoomList(query) {
+    if (!forwardMessageList) return;
+    forwardMessageList.innerHTML = '';
+    const q = String(query || '').toLowerCase().trim();
+    const rooms = roomCatalog
+      .filter((r) => r?.roomId && r.roomId !== pendingForwardMessage?.roomId)
+      .filter((r) => {
+        if (!q) return true;
+        return (
+          String(r.name || '').toLowerCase().includes(q) ||
+          String(r.canonicalAlias || '').toLowerCase().includes(q) ||
+          String(r.roomId || '').toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 40);
+    if (!rooms.length) {
+      const empty = document.createElement('li');
+      empty.textContent = 'No rooms found';
+      forwardMessageList.appendChild(empty);
+      return;
+    }
+    for (const room of rooms) {
+      const li = document.createElement('li');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'forward-message-item';
+      btn.textContent = room.name || room.canonicalAlias || room.roomId;
+      btn.addEventListener('click', () => {
+        void forwardToRoom(room.roomId);
+      });
+      li.appendChild(btn);
+      forwardMessageList.appendChild(li);
+    }
+  }
+
+  async function forwardToRoom(targetRoomId) {
+    if (!pendingForwardMessage?.eventId || !pendingForwardMessage?.roomId) return;
+    try {
+      await api(
+        `/api/rooms/${encodeURIComponent(pendingForwardMessage.roomId)}/messages/${encodeURIComponent(pendingForwardMessage.eventId)}/forward`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ targetRoomId }),
+        },
+      );
+      forwardMessageDialog?.close?.();
+      pendingForwardMessage = null;
+      const target = roomCatalog.find((r) => r.roomId === targetRoomId);
+      if (target) openRoomEntry(target);
+    } catch (error) {
+      if (forwardMessageError) {
+        forwardMessageError.hidden = false;
+        forwardMessageError.textContent = (error.message || String(error)).replace(/^MatrixError:\s*/i, '');
+      }
+    }
+  }
+
+  async function openSasVerifyDialog(deviceId) {
+    if (!sasVerifyDialog || !sasVerifyEmojis) return;
+    if (sasVerifyError) {
+      sasVerifyError.hidden = true;
+      sasVerifyError.textContent = '';
+    }
+    sasVerifyEmojis.innerHTML = '<p class="settings-muted">Starting verification…</p>';
+    if (typeof sasVerifyDialog.showModal === 'function') sasVerifyDialog.showModal();
+    try {
+      const result = await api(`/api/devices/${encodeURIComponent(deviceId)}/verify-sas`, {
+        method: 'POST',
+        body: '{}',
+      });
+      if (result.mode === 'cross-sign') {
+        sasVerifyDialog.close();
+        window.alert('Device cross-signed.');
+        void refreshDevicesSettings();
+        return;
+      }
+      sasVerifyEmojis.innerHTML = '';
+      for (const entry of result.sas?.emojis || []) {
+        const chip = document.createElement('div');
+        chip.className = 'sas-verify-chip';
+        const emoji = document.createElement('span');
+        emoji.className = 'sas-verify-emoji';
+        emoji.textContent = entry.emoji || '';
+        const label = document.createElement('span');
+        label.className = 'sas-verify-label';
+        label.textContent = entry.label || '';
+        chip.appendChild(emoji);
+        chip.appendChild(label);
+        sasVerifyEmojis.appendChild(chip);
+      }
+      if (!result.sas?.emojis?.length) {
+        sasVerifyEmojis.innerHTML = '<p class="settings-muted">Waiting for emoji SAS from the other device…</p>';
+      }
+    } catch (error) {
+      if (sasVerifyError) {
+        sasVerifyError.hidden = false;
+        sasVerifyError.textContent = (error.message || String(error)).replace(/^MatrixError:\s*/i, '');
+      }
+    }
+  }
+
+  async function confirmSas(match) {
+    try {
+      await api('/api/devices/verify-sas/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ match: Boolean(match) }),
+      });
+      sasVerifyDialog?.close?.();
+      void refreshDevicesSettings();
+      window.alert(match ? 'Devices verified.' : 'Verification cancelled.');
+    } catch (error) {
+      if (sasVerifyError) {
+        sasVerifyError.hidden = false;
+        sasVerifyError.textContent = (error.message || String(error)).replace(/^MatrixError:\s*/i, '');
+      }
+    }
+  }
+
+    function openMessageReceiptsDialog(msg) {
+    if (!messageReceiptsDialog || !messageReceiptsList || !msg) return;
+    messageReceiptsList.innerHTML = '';
+    const readers = Array.isArray(msg.readBy) ? msg.readBy : [];
+    if (!readers.length) {
+      const empty = document.createElement('li');
+      empty.className = 'message-receipts-empty';
+      empty.textContent = 'No one has seen this yet.';
+      messageReceiptsList.appendChild(empty);
+    } else {
+      for (const entry of readers) {
+        const li = document.createElement('li');
+        li.className = 'message-receipts-row';
+
+        const avatarUrl = entry.avatarUrl || (entry.userId ? avatarUrlForUser(entry.userId) : null);
+        const name = entry.displayName || entry.userId || 'Unknown';
+        if (entry.hasAvatar !== false && avatarUrl) {
+          const img = document.createElement('img');
+          img.className = 'message-receipts-avatar';
+          img.alt = '';
+          img.referrerPolicy = 'no-referrer';
+          img.src = avatarUrl;
+          img.addEventListener(
+            'error',
+            () => {
+              const fallback = document.createElement('span');
+              fallback.className = 'message-receipts-avatar-fallback';
+              fallback.textContent = initials(name);
+              img.replaceWith(fallback);
+            },
+            { once: true },
+          );
+          li.appendChild(img);
+        } else {
+          const fallback = document.createElement('span');
+          fallback.className = 'message-receipts-avatar-fallback';
+          fallback.textContent = initials(name);
+          li.appendChild(fallback);
+        }
+
+        const label = document.createElement('span');
+        label.className = 'message-receipts-name';
+        label.textContent = name;
+        li.appendChild(label);
+        messageReceiptsList.appendChild(li);
+      }
+    }
+    if (typeof messageReceiptsDialog.showModal === 'function') messageReceiptsDialog.showModal();
+  }
+
+  function latestMineMessageEventId(messages) {
+    for (let i = (messages || []).length - 1; i >= 0; i -= 1) {
+      const candidate = messages[i];
+      if (!candidate?.isMine || candidate.redacted) continue;
+      if (candidate.systemKind) continue;
+      if (candidate.type !== 'm.room.message' && !candidate.encrypted) continue;
+      return candidate.eventId || null;
+    }
+    return null;
+  }
+
+  function receiptDisplayNames(readBy) {
+    return (readBy || [])
+      .map((entry) => {
+        const name = entry.displayName || entry.userId || '';
+        if (name.startsWith('@')) {
+          const local = name.slice(1).split(':')[0];
+          return local || name;
+        }
+        return name;
+      })
+      .filter(Boolean);
+  }
+
+  function buildMessageReceiptsButton(msg) {
+    const names = receiptDisplayNames(msg.readBy);
+    if (!names.length) return null;
+    const receipts = document.createElement('button');
+    receipts.type = 'button';
+    receipts.className = 'message-receipts';
+    receipts.title = 'Seen by';
+    receipts.setAttribute('aria-label', `Seen by ${names.join(', ')}`);
+    const mark = document.createElement('span');
+    mark.className = 'message-receipt-mark';
+    mark.setAttribute('aria-hidden', 'true');
+    mark.textContent = '✓✓';
+    receipts.appendChild(mark);
+    const label = document.createElement('span');
+    label.className = 'message-receipt-names';
+    const shown = names.slice(0, 3);
+    label.textContent =
+      names.length > shown.length
+        ? `${shown.join(', ')} +${names.length - shown.length}`
+        : shown.join(', ');
+    receipts.appendChild(label);
+    receipts.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openMessageReceiptsDialog(msg);
+    });
+    return receipts;
+  }
+
+  function syncMessageReceiptsUi(messages) {
+    if (!messageList) return;
+    messageList.querySelectorAll('.message-receipts').forEach((el) => el.remove());
+    const latestId = latestMineMessageEventId(messages);
+    if (!latestId) return;
+    const msg = (messages || []).find((entry) => entry.eventId === latestId);
+    if (!msg || !Array.isArray(msg.readBy) || !msg.readBy.length) return;
+    const row = messageList.querySelector(`[data-event-id="${CSS.escape(latestId)}"]`);
+    const main = row?.querySelector?.('.message-main');
+    const button = buildMessageReceiptsButton(msg);
+    if (main && button) main.appendChild(button);
+  }
+
   function hideMessageMenu() {
     if (messageContextMenu) messageContextMenu.hidden = true;
     contextMessage = null;
@@ -3082,7 +3683,9 @@
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `message-reaction${reaction.me ? ' is-mine' : ''}`;
-      btn.title = reaction.me ? 'Remove reaction' : 'Add reaction';
+      btn.title = reaction.me
+        ? 'Remove reaction · right-click who reacted'
+        : 'Add reaction · right-click who reacted';
 
       const emoji = document.createElement('span');
       emoji.className = 'message-reaction-emoji';
@@ -3096,9 +3699,18 @@
       btn.addEventListener('click', (event) => {
         event.preventDefault();
         event.stopPropagation();
+        if (event.altKey || event.shiftKey) {
+          openReactionDetails(reaction);
+          return;
+        }
         void toggleMessageReaction(roomId, eventId, reaction.key).catch((error) => {
           window.alert((error.message || String(error)).replace(/^MatrixError:\s*/i, ''));
         });
+      });
+      btn.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openReactionDetails(reaction);
       });
       row.appendChild(btn);
     }
@@ -5185,6 +5797,31 @@
       row.addEventListener('click', (event) => {
         void showUserProfile(member.userId, event.clientX, event.clientY);
       });
+      row.addEventListener('contextmenu', (event) => {
+        event.preventDefault();
+        if (!activeRoomId || !member.userId) return;
+        const selfId = sessionUserId;
+        if (selfId && member.userId === selfId) return;
+        const choice = window.prompt(
+          `Moderate ${member.displayName || member.userId}\nType kick or ban (leave blank to cancel)`,
+          'kick',
+        );
+        if (!choice) return;
+        const action = String(choice).trim().toLowerCase();
+        if (action !== 'kick' && action !== 'ban') return;
+        const reason = window.prompt('Reason (optional)', '') || '';
+        void api(
+          `/api/rooms/${encodeURIComponent(activeRoomId)}/members/${encodeURIComponent(member.userId)}/moderate`,
+          {
+            method: 'POST',
+            body: JSON.stringify({ action, reason }),
+          },
+        )
+          .then(() => refreshRoomMembers(activeRoomId))
+          .catch((error) => {
+            window.alert((error.message || String(error)).replace(/^MatrixError:\s*/i, ''));
+          });
+      });
       li.appendChild(row);
       roomMembersList.appendChild(li);
     }
@@ -5681,13 +6318,70 @@
     positionRoomPinsPanel();
   }
 
-  function renderRoomThreads() {
+  async function renderRoomThreads() {
     if (!roomThreadsList) return;
     roomThreadsList.innerHTML = '';
-    const empty = document.createElement('div');
-    empty.className = 'room-pins-empty';
-    empty.textContent = 'No threads in this room yet.';
-    roomThreadsList.appendChild(empty);
+    if (!activeRoomId) {
+      const empty = document.createElement('div');
+      empty.className = 'room-pins-empty';
+      empty.textContent = 'No threads in this room yet.';
+      roomThreadsList.appendChild(empty);
+      return;
+    }
+    const loading = document.createElement('div');
+    loading.className = 'room-pins-empty';
+    loading.textContent = 'Loading threads…';
+    roomThreadsList.appendChild(loading);
+    try {
+      const data = await api(`/api/rooms/${encodeURIComponent(activeRoomId)}/threads`);
+      if (!roomThreadsList) return;
+      roomThreadsList.innerHTML = '';
+      const threads = Array.isArray(data.threads) ? data.threads : [];
+      if (!threads.length) {
+        const empty = document.createElement('div');
+        empty.className = 'room-pins-empty';
+        empty.textContent = 'No threads in this room yet.';
+        roomThreadsList.appendChild(empty);
+        return;
+      }
+      for (const thread of threads) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'room-pins-item';
+        const title = document.createElement('strong');
+        title.textContent = thread.body || 'Thread';
+        const meta = document.createElement('span');
+        meta.className = 'room-pins-meta';
+        const replies = Number(thread.replyCount) || 0;
+        meta.textContent = `${thread.senderName || 'User'} · ${replies} ${replies === 1 ? 'reply' : 'replies'}`;
+        btn.appendChild(title);
+        btn.appendChild(meta);
+        btn.addEventListener('click', () => {
+          roomThreadsPanel.hidden = true;
+          roomThreadsBtn?.classList.remove('is-active');
+          void jumpToMessage(thread.rootEventId, {
+            missingMessage: 'That thread root is not in the loaded timeline yet.',
+          });
+          setPendingReply(
+            {
+              eventId: thread.rootEventId,
+              body: thread.body,
+              senderName: thread.senderName,
+              sender: thread.sender,
+              roomId: activeRoomId,
+            },
+            { thread: true },
+          );
+        });
+        roomThreadsList.appendChild(btn);
+      }
+    } catch (error) {
+      roomThreadsList.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'room-pins-empty';
+      empty.textContent = (error.message || String(error)).replace(/^MatrixError:\s*/i, '') || 'Could not load threads.';
+      roomThreadsList.appendChild(empty);
+    }
   }
 
   function openRoomThreadsPanel() {
@@ -5696,7 +6390,7 @@
     roomThreadsPanel.hidden = false;
     roomThreadsBtn?.classList.add('is-active');
     roomThreadsBtn?.setAttribute('aria-expanded', 'true');
-    renderRoomThreads();
+    void renderRoomThreads();
     positionRoomThreadsPanel();
   }
 
@@ -8021,20 +8715,24 @@
     closeLobby();
     closeForum();
     const sameRoom = activeRoomId === room.roomId;
-    if (activeRoomId && !sameRoom) void sendTypingState(false);
+    if (activeRoomId && !sameRoom) {
+      void sendTypingState(false);
+      saveComposerDraft(activeRoomId);
+    }
     activeRoomId = room.roomId;
     persistLastRoom(room.roomId);
     localTypingSent = false;
     lastTypingFingerprint = '';
     updateTimelineHead(room);
     composerForm.hidden = false;
-    clearMentions();
     clearPendingAttachments();
     clearPendingReply();
     clearPendingEdit();
     pendingReactionTarget = null;
     hideRoomMenu();
     closeComposerPanels();
+    hideComposerAutocomplete();
+    if (!sameRoom) restoreComposerDraft(room.roomId);
     pendingScrollEventId = scrollToEventId || null;
     const mode = scrollOnReselectMode();
     let pinBottom = !pendingScrollEventId;
@@ -8154,8 +8852,199 @@
     }
   }
 
+  function clearRailDragHints() {
+    if (!spaceRailList) return;
+    for (const el of spaceRailList.querySelectorAll(
+      '.is-drop-target, .is-folder-drop, [data-drop-above], [data-drop-below]',
+    )) {
+      el.classList.remove('is-drop-target', 'is-folder-drop');
+      el.removeAttribute('data-drop-above');
+      el.removeAttribute('data-drop-below');
+    }
+    for (const el of spaceRailList.querySelectorAll('.rail-folder.is-folder-drop')) {
+      el.classList.remove('is-folder-drop');
+    }
+    const marker = spaceRailList.querySelector('.rail-drop-line');
+    if (marker) {
+      marker.classList.remove('is-active');
+      marker.style.top = '';
+    }
+    spaceRailList.classList.remove('is-ungroup-drop');
+    workspaceRail?.classList.remove('is-ungroup-drop');
+    railDropHint = { mode: null, spaceId: null, folderId: null };
+  }
+
+  function ensureRailDropMarker() {
+    let marker = spaceRailList.querySelector(':scope > .rail-drop-line');
+    if (!marker) {
+      marker = document.createElement('div');
+      marker.className = 'rail-drop-line';
+      marker.setAttribute('aria-hidden', 'true');
+      spaceRailList.appendChild(marker);
+    }
+    return marker;
+  }
+
+  function setSpaceDropAttrs(btn, mode) {
+    btn.removeAttribute('data-drop-above');
+    btn.removeAttribute('data-drop-below');
+    btn.classList.remove('is-drop-target', 'is-folder-drop');
+    if (mode === 'before') btn.setAttribute('data-drop-above', 'true');
+    else if (mode === 'after') btn.setAttribute('data-drop-below', 'true');
+    else if (mode === 'folder') btn.classList.add('is-drop-target', 'is-folder-drop');
+  }
+
+  function railDropZoneForPoint(btn, clientY) {
+    const rect = btn.getBoundingClientRect();
+    const y = clientY - rect.top;
+    const edge = Math.max(12, rect.height * 0.32);
+    if (y < edge) return 'before';
+    if (y > rect.height - edge) return 'after';
+    return 'folder';
+  }
+
+  function applySpaceDropHint(btn, space, clientY) {
+    if (!dragSpaceId || dragSpaceId === space.spaceId) {
+      clearRailDragHints();
+      return null;
+    }
+    const mode = railDropZoneForPoint(btn, clientY);
+    const folderId = findSpaceFolder(space.spaceId)?.id || null;
+
+    for (const el of spaceRailList.querySelectorAll(
+      '.is-drop-target, .is-folder-drop, [data-drop-above], [data-drop-below]',
+    )) {
+      if (el === btn) continue;
+      el.classList.remove('is-drop-target', 'is-folder-drop');
+      el.removeAttribute('data-drop-above');
+      el.removeAttribute('data-drop-below');
+    }
+    spaceRailList.querySelector('.rail-drop-line')?.classList.remove('is-active');
+
+    setSpaceDropAttrs(btn, mode);
+    railDropHint = { mode, spaceId: space.spaceId, folderId };
+    return railDropHint;
+  }
+
+  function commitSpaceDrop(fromId, hint) {
+    if (!fromId || !hint?.mode || !hint.spaceId) return;
+    const toId = hint.spaceId;
+    if (fromId === toId && hint.mode !== 'folder') return;
+
+    if (hint.mode === 'folder') {
+      if (hint.folderId) addSpaceToFolder(hint.folderId, fromId);
+      else {
+        const toFolder = findSpaceFolder(toId);
+        if (toFolder) addSpaceToFolder(toFolder.id, fromId);
+        else createSpaceFolder([fromId, toId], 'Folder');
+      }
+      return;
+    }
+
+    if (hint.mode === 'before') {
+      placeSpaceAtGap(fromId, { beforeId: toId, folderId: hint.folderId });
+      return;
+    }
+
+    if (hint.folderId) {
+      const folder = findFolderById(hint.folderId);
+      const members = folder?.spaceIds || [];
+      const idx = members.indexOf(toId);
+      const nextId = idx >= 0 ? members[idx + 1] || null : null;
+      placeSpaceAtGap(fromId, { beforeId: nextId, folderId: hint.folderId });
+      return;
+    }
+
+    const folders = getSpaceFolders();
+    const folderBySpace = new Map();
+    for (const folder of folders) {
+      for (const id of folder.spaceIds) folderBySpace.set(id, folder);
+    }
+    const visible = orderedVisibleSpaces(spaceCatalog);
+    const railIds = [];
+    const seenFolders = new Set();
+    for (const space of visible) {
+      const folder = folderBySpace.get(space.spaceId);
+      if (folder) {
+        if (seenFolders.has(folder.id)) continue;
+        seenFolders.add(folder.id);
+        railIds.push(folder.spaceIds[0]);
+        continue;
+      }
+      railIds.push(space.spaceId);
+    }
+    const railIdx = railIds.indexOf(toId);
+    const nextRail = railIdx >= 0 ? railIds[railIdx + 1] || null : null;
+    placeSpaceAtGap(fromId, { beforeId: nextRail, folderId: null });
+  }
+
+  function updateRailGapDropHint(clientY) {
+    if (!dragSpaceId || !spaceRailList) return;
+    const topTargets = [
+      ...spaceRailList.querySelectorAll(
+        ':scope > .workspace-rail-btn--space, :scope > .rail-folder',
+      ),
+    ];
+    if (!topTargets.length) return;
+
+    for (const el of spaceRailList.querySelectorAll(
+      '.is-drop-target, .is-folder-drop, [data-drop-above], [data-drop-below]',
+    )) {
+      el.classList.remove('is-drop-target', 'is-folder-drop');
+      el.removeAttribute('data-drop-above');
+      el.removeAttribute('data-drop-below');
+    }
+
+    const listRect = spaceRailList.getBoundingClientRect();
+    let insertBefore = null;
+    let markerY = listRect.height;
+    for (const el of topTargets) {
+      const rect = el.getBoundingClientRect();
+      const mid = rect.top + rect.height / 2;
+      if (clientY < mid) {
+        insertBefore = el;
+        markerY = rect.top - listRect.top;
+        break;
+      }
+      markerY = rect.bottom - listRect.top;
+    }
+
+    const marker = ensureRailDropMarker();
+    marker.style.top = `${markerY + spaceRailList.scrollTop}px`;
+    marker.classList.add('is-active');
+
+    if (insertBefore?.classList.contains('workspace-rail-btn--space')) {
+      const sid = insertBefore.dataset.space;
+      railDropHint = {
+        mode: 'before',
+        spaceId: sid,
+        folderId: findSpaceFolder(sid)?.id || null,
+      };
+    } else if (insertBefore?.classList.contains('rail-folder')) {
+      const folder = findFolderById(insertBefore.dataset.folderId);
+      railDropHint = {
+        mode: 'before',
+        spaceId: folder?.spaceIds[0] || null,
+        folderId: null,
+      };
+    } else {
+      const last = topTargets[topTargets.length - 1];
+      if (last?.classList.contains('workspace-rail-btn--space')) {
+        railDropHint = {
+          mode: 'after',
+          spaceId: last.dataset.space,
+          folderId: findSpaceFolder(last.dataset.space)?.id || null,
+        };
+      } else if (last?.classList.contains('rail-folder')) {
+        const folder = findFolderById(last.dataset.folderId);
+        const lastId = folder?.spaceIds?.[folder.spaceIds.length - 1] || null;
+        railDropHint = { mode: 'after', spaceId: lastId, folderId: null };
+      }
+    }
+  }
+
   function renderSpaceRail(spaces) {
-      spaceCatalog = Array.isArray(spaces) ? spaces : [];
+    spaceCatalog = Array.isArray(spaces) ? spaces : [];
     for (const space of spaceCatalog) {
       if (space?.spaceId && space?.name) spaceNameCache.set(space.spaceId, space.name);
     }
@@ -8182,132 +9071,68 @@
     }
     const renderedFolders = new Set();
 
-    const clearRailDragHints = () => {
-      for (const el of spaceRailList.querySelectorAll(
-        '.is-drop-target, .is-folder-drop, .rail-drop-line.is-active',
-      )) {
-        el.classList.remove('is-drop-target', 'is-folder-drop', 'is-active');
-      }
-      spaceRailList.classList.remove('is-ungroup-drop');
-      workspaceRail?.classList.remove('is-ungroup-drop');
-    };
-
-    const buildDropLine = ({ beforeId = null, folderId = null } = {}) => {
-      const line = document.createElement('div');
-      line.className = 'rail-drop-line';
-      line.setAttribute('aria-hidden', 'true');
-      if (folderId) line.dataset.folderId = folderId;
-      if (beforeId) line.dataset.beforeId = beforeId;
-
-      line.addEventListener('dragover', (event) => {
-        if (!dragSpaceId) return;
-        event.preventDefault();
-        event.stopPropagation();
-        event.dataTransfer.dropEffect = 'move';
-        for (const el of spaceRailList.querySelectorAll('.rail-drop-line.is-active')) {
-          if (el !== line) el.classList.remove('is-active');
-        }
-        line.classList.add('is-active');
-      });
-      line.addEventListener('dragleave', (event) => {
-        if (!line.contains(event.relatedTarget)) line.classList.remove('is-active');
-      });
-      line.addEventListener('drop', (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        line.classList.remove('is-active');
-        const fromId =
-          dragSpaceId ||
-          event.dataTransfer.getData('application/x-relay-space') ||
-          event.dataTransfer.getData('text/plain');
-        if (!fromId) return;
-        placeSpaceAtGap(fromId, { beforeId, folderId });
-        renderSpaceRail(spaceCatalog);
-      });
-      return line;
-    };
-
     const attachSpaceDrag = (btn, space) => {
       btn.draggable = true;
       btn.addEventListener('dragstart', (event) => {
         dragSpaceId = space.spaceId;
         dragFolderId = null;
+        railDropHint = { mode: null, spaceId: null, folderId: null };
         btn.classList.add('is-dragging');
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('text/plain', space.spaceId);
         event.dataTransfer.setData('application/x-relay-space', space.spaceId);
+        try {
+          const ghost = btn.cloneNode(true);
+          ghost.style.position = 'absolute';
+          ghost.style.top = '-9999px';
+          ghost.style.opacity = '0.85';
+          document.body.appendChild(ghost);
+          event.dataTransfer.setDragImage(ghost, btn.offsetWidth / 2, btn.offsetHeight / 2);
+          requestAnimationFrame(() => ghost.remove());
+        } catch {
+          /* ignore */
+        }
       });
       btn.addEventListener('dragend', () => {
         dragSpaceId = null;
+        dragFolderId = null;
         btn.classList.remove('is-dragging');
         clearRailDragHints();
       });
       btn.addEventListener('dragover', (event) => {
+        if (!dragSpaceId || dragSpaceId === space.spaceId) return;
         event.preventDefault();
         event.stopPropagation();
         event.dataTransfer.dropEffect = 'move';
-        const rect = btn.getBoundingClientRect();
-        const y = event.clientY - rect.top;
-        const edge = Math.max(10, rect.height * 0.28);
-        if (y < edge || y > rect.height - edge) {
-          btn.classList.remove('is-drop-target', 'is-folder-drop');
-          return;
-        }
-        btn.classList.add('is-drop-target', 'is-folder-drop');
+        applySpaceDropHint(btn, space, event.clientY);
       });
-      btn.addEventListener('dragleave', () => {
+      btn.addEventListener('dragleave', (event) => {
+        if (btn.contains(event.relatedTarget)) return;
+        btn.removeAttribute('data-drop-above');
+        btn.removeAttribute('data-drop-below');
         btn.classList.remove('is-drop-target', 'is-folder-drop');
+        if (railDropHint.spaceId === space.spaceId) {
+          railDropHint = { mode: null, spaceId: null, folderId: null };
+        }
       });
       btn.addEventListener('drop', (event) => {
         event.preventDefault();
         event.stopPropagation();
-        btn.classList.remove('is-drop-target', 'is-folder-drop');
         const fromId =
           dragSpaceId ||
           event.dataTransfer.getData('application/x-relay-space') ||
           event.dataTransfer.getData('text/plain');
-        const toId = space.spaceId;
-        if (!fromId || fromId === toId) return;
-
-        const rect = btn.getBoundingClientRect();
-        const y = event.clientY - rect.top;
-        const edge = Math.max(10, rect.height * 0.28);
-        const fromFolder = findSpaceFolder(fromId);
-        const toFolder = findSpaceFolder(toId);
-
-        // Edge drop → insert before/after (in or out of that space's folder).
-        if (y < edge || y > rect.height - edge) {
-          if (y < edge) {
-            placeSpaceAtGap(fromId, {
-              beforeId: toId,
-              folderId: toFolder?.id || null,
-            });
-          } else {
-            const order = ensureOrderIncludes(spaceCatalog);
-            const idx = order.indexOf(toId);
-            const nextId = idx >= 0 ? order[idx + 1] || null : null;
-            placeSpaceAtGap(fromId, {
-              beforeId: nextId,
-              folderId: toFolder?.id || null,
-            });
-          }
-          renderSpaceRail(spaceCatalog);
-          return;
-        }
-
-        // Center drop → create/join folder.
-        if (toFolder && (!fromFolder || fromFolder.id !== toFolder.id)) {
-          addSpaceToFolder(toFolder.id, fromId);
-          renderSpaceRail(spaceCatalog);
-          return;
-        }
-        if (!toFolder) {
-          createSpaceFolder([fromId, toId], 'Folder');
-          renderSpaceRail(spaceCatalog);
-          return;
-        }
-
-        placeSpaceAtGap(fromId, { beforeId: toId, folderId: toFolder.id });
+        const hint =
+          railDropHint.spaceId === space.spaceId
+            ? { ...railDropHint }
+            : {
+                mode: railDropZoneForPoint(btn, event.clientY),
+                spaceId: space.spaceId,
+                folderId: findSpaceFolder(space.spaceId)?.id || null,
+              };
+        clearRailDragHints();
+        if (!fromId) return;
+        commitSpaceDrop(fromId, hint);
         renderSpaceRail(spaceCatalog);
       });
     };
@@ -8406,6 +9231,63 @@
           event.preventDefault();
           showFolderMenu(folder.id, event.clientX, event.clientY);
         });
+        stack.addEventListener('dragover', (event) => {
+          if (!dragSpaceId || folder.spaceIds.includes(dragSpaceId)) return;
+          event.preventDefault();
+          event.stopPropagation();
+          event.dataTransfer.dropEffect = 'move';
+          const rect = stack.getBoundingClientRect();
+          const y = event.clientY - rect.top;
+          const edge = Math.max(10, rect.height * 0.28);
+          for (const el of spaceRailList.querySelectorAll(
+            '.is-drop-target, .is-folder-drop, [data-drop-above], [data-drop-below]',
+          )) {
+            el.classList.remove('is-drop-target', 'is-folder-drop');
+            el.removeAttribute('data-drop-above');
+            el.removeAttribute('data-drop-below');
+          }
+          wrap.classList.remove('is-folder-drop');
+          if (y < edge || y > rect.height - edge) {
+            const marker = ensureRailDropMarker();
+            const listRect = spaceRailList.getBoundingClientRect();
+            marker.style.top = `${(y < edge ? rect.top : rect.bottom) - listRect.top + spaceRailList.scrollTop}px`;
+            marker.classList.add('is-active');
+            railDropHint = {
+              mode: y < edge ? 'before' : 'after',
+              spaceId: folder.spaceIds[0],
+              folderId: null,
+            };
+          } else {
+            spaceRailList.querySelector('.rail-drop-line')?.classList.remove('is-active');
+            wrap.classList.add('is-folder-drop');
+            railDropHint = { mode: 'folder', spaceId: folder.spaceIds[0], folderId: folder.id };
+          }
+        });
+        stack.addEventListener('drop', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          const fromId =
+            dragSpaceId ||
+            event.dataTransfer.getData('application/x-relay-space') ||
+            event.dataTransfer.getData('text/plain');
+          const hint = { ...railDropHint };
+          clearRailDragHints();
+          if (!fromId || folder.spaceIds.includes(fromId)) return;
+          if (hint.mode === 'folder' || hint.folderId === folder.id) {
+            addSpaceToFolder(folder.id, fromId);
+          } else if (hint.mode === 'before') {
+            placeSpaceAtGap(fromId, { beforeId: folder.spaceIds[0], folderId: null });
+          } else if (hint.mode === 'after') {
+            const order = ensureOrderIncludes(spaceCatalog);
+            const last = folder.spaceIds[folder.spaceIds.length - 1];
+            const idx = order.indexOf(last);
+            const nextId = idx >= 0 ? order[idx + 1] || null : null;
+            placeSpaceAtGap(fromId, { beforeId: nextId, folderId: null });
+          } else {
+            addSpaceToFolder(folder.id, fromId);
+          }
+          renderSpaceRail(spaceCatalog);
+        });
         wrap.appendChild(stack);
       } else {
         const toggle = document.createElement('button');
@@ -8424,36 +9306,33 @@
           showFolderMenu(folder.id, event.clientX, event.clientY);
         });
         wrap.appendChild(toggle);
-        wrap.appendChild(buildDropLine({ beforeId: members[0]?.spaceId || null, folderId: folder.id }));
-        for (let i = 0; i < members.length; i += 1) {
-          wrap.appendChild(buildSpaceBtn(members[i], { inFolder: true }));
-          wrap.appendChild(
-            buildDropLine({
-              beforeId: members[i + 1]?.spaceId || null,
-              folderId: folder.id,
-            }),
-          );
+        for (const member of members) {
+          wrap.appendChild(buildSpaceBtn(member, { inFolder: true }));
         }
       }
 
       wrap.addEventListener('dragover', (event) => {
         if (!dragSpaceId) return;
-        if (event.target.closest('.rail-drop-line, .workspace-rail-btn--space')) return;
+        if (event.target.closest('.workspace-rail-btn--space, .rail-folder-stack')) return;
+        if (folder.spaceIds.includes(dragSpaceId)) return;
         event.preventDefault();
         wrap.classList.add('is-folder-drop');
+        railDropHint = { mode: 'folder', spaceId: folder.spaceIds[0], folderId: folder.id };
       });
-      wrap.addEventListener('dragleave', () => wrap.classList.remove('is-folder-drop'));
+      wrap.addEventListener('dragleave', (event) => {
+        if (!wrap.contains(event.relatedTarget)) wrap.classList.remove('is-folder-drop');
+      });
       wrap.addEventListener('drop', (event) => {
+        if (event.target.closest('.workspace-rail-btn--space, .rail-folder-stack')) return;
         event.preventDefault();
         event.stopPropagation();
         wrap.classList.remove('is-folder-drop');
-        if (event.target.closest('.rail-drop-line, .workspace-rail-btn--space')) return;
         const fromId =
           dragSpaceId ||
           event.dataTransfer.getData('application/x-relay-space') ||
           event.dataTransfer.getData('text/plain');
-        if (!fromId) return;
-        if (folder.spaceIds.includes(fromId)) return;
+        clearRailDragHints();
+        if (!fromId || folder.spaceIds.includes(fromId)) return;
         addSpaceToFolder(folder.id, fromId);
         renderSpaceRail(spaceCatalog);
       });
@@ -8478,22 +9357,14 @@
       railItems.push({ type: 'space', space, beforeId: space.spaceId });
     }
 
-    spaceRailList.appendChild(
-      buildDropLine({
-        beforeId: railItems[0]?.beforeId || null,
-        folderId: null,
-      }),
-    );
-    for (let i = 0; i < railItems.length; i += 1) {
-      const item = railItems[i];
+    for (const item of railItems) {
       if (item.type === 'folder') {
         spaceRailList.appendChild(buildFolderEl(item.folder));
       } else {
         spaceRailList.appendChild(buildSpaceBtn(item.space));
       }
-      const nextBefore = railItems[i + 1]?.beforeId || null;
-      spaceRailList.appendChild(buildDropLine({ beforeId: nextBefore, folderId: null }));
     }
+    ensureRailDropMarker();
 
     syncWorkspaceRailSelection();
   }
@@ -8532,9 +9403,7 @@
   // (and dissolve the folder if only one space would remain).
   const isSpaceFolderDropTarget = (event) =>
     Boolean(
-      event.target.closest(
-        '.workspace-rail-btn--space, .rail-folder, .rail-folder-stack, .rail-drop-line',
-      ),
+      event.target.closest('.workspace-rail-btn--space, .rail-folder, .rail-folder-stack'),
     );
 
   const acceptUngroupDrag = (event) => {
@@ -8562,21 +9431,62 @@
     renderSpaceRail(spaceCatalog);
   };
 
-  for (const el of [spaceRailList, workspaceRail]) {
-    el.addEventListener('dragover', (event) => {
-      if (!acceptUngroupDrag(event)) {
-        clearUngroupDropHint();
-        return;
-      }
-      event.preventDefault();
-      event.dataTransfer.dropEffect = 'move';
-      el.classList.add('is-ungroup-drop');
-    });
-    el.addEventListener('dragleave', (event) => {
-      if (event.target === el) el.classList.remove('is-ungroup-drop');
-    });
-    el.addEventListener('drop', handleUngroupDrop);
-  }
+  spaceRailList?.addEventListener('dragover', (event) => {
+    if (!dragSpaceId) return;
+    if (isSpaceFolderDropTarget(event)) {
+      clearUngroupDropHint();
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    if (acceptUngroupDrag(event)) {
+      spaceRailList.classList.add('is-ungroup-drop');
+      spaceRailList.querySelector('.rail-drop-line')?.classList.remove('is-active');
+      return;
+    }
+    clearUngroupDropHint();
+    updateRailGapDropHint(event.clientY);
+  });
+
+  spaceRailList?.addEventListener('dragleave', (event) => {
+    if (event.target === spaceRailList) {
+      spaceRailList.classList.remove('is-ungroup-drop');
+      spaceRailList.querySelector('.rail-drop-line')?.classList.remove('is-active');
+    }
+  });
+
+  spaceRailList?.addEventListener('drop', (event) => {
+    if (isSpaceFolderDropTarget(event)) return;
+    if (acceptUngroupDrag(event)) {
+      handleUngroupDrop(event);
+      return;
+    }
+    if (!dragSpaceId || !railDropHint.mode || !railDropHint.spaceId) return;
+    event.preventDefault();
+    const fromId =
+      dragSpaceId ||
+      event.dataTransfer.getData('application/x-relay-space') ||
+      event.dataTransfer.getData('text/plain');
+    const hint = { ...railDropHint };
+    clearRailDragHints();
+    if (!fromId) return;
+    commitSpaceDrop(fromId, hint);
+    renderSpaceRail(spaceCatalog);
+  });
+
+  workspaceRail?.addEventListener('dragover', (event) => {
+    if (!acceptUngroupDrag(event)) {
+      clearUngroupDropHint();
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    workspaceRail.classList.add('is-ungroup-drop');
+  });
+  workspaceRail?.addEventListener('dragleave', (event) => {
+    if (event.target === workspaceRail) workspaceRail.classList.remove('is-ungroup-drop');
+  });
+  workspaceRail?.addEventListener('drop', handleUngroupDrop);
 
   showHiddenSpacesBtn.addEventListener('click', () => {
     const hidden = [...getHiddenSpaces()];
@@ -8865,31 +9775,21 @@
           body: '{}',
         });
         await refreshRooms();
-      } else if (action === 'notifications') {
-        const muted = getMutedRooms();
-        const currentlyMuted = muted.has(roomId);
-        const nextMute = window.confirm(
-          currentlyMuted
-            ? `Unmute notifications for ${room?.name || 'this room'}?`
-            : `Mute notifications for ${room?.name || 'this room'}?`,
-        );
-        if (!nextMute) return;
-        if (currentlyMuted) muted.delete(roomId);
-        else muted.add(roomId);
-        setMutedRooms(muted);
-        try {
-          await api(`/api/rooms/${encodeURIComponent(roomId)}/mute`, {
-            method: 'POST',
-            body: JSON.stringify({ muted: !currentlyMuted }),
-          });
-        } catch {
-          // local mute still applies for Conduit desktop alerts
-        }
-        window.alert(
-          currentlyMuted
-            ? 'Room unmuted for Conduit notifications'
-            : 'Room muted for Conduit notifications',
-        );
+      } else if (action === 'notifications' || action === 'notif-all' || action === 'notif-mentions' || action === 'notif-mute') {
+        const level =
+          action === 'notif-mentions'
+            ? 'mentions'
+            : action === 'notif-mute'
+              ? 'mute'
+              : action === 'notif-all'
+                ? 'all'
+                : getRoomNotifLevel(roomId) === 'mute'
+                  ? 'all'
+                  : 'mute';
+        await setRoomNotifLevel(roomId, level);
+        const label =
+          level === 'mute' ? 'muted' : level === 'mentions' ? 'mentions only' : 'all messages';
+        window.alert(`Notifications for ${room?.name || 'this room'}: ${label}`);
       } else if (action === 'invite') {
         openInviteDialog({ kind: 'room', id: roomId, name: room?.name || 'room' });
       } else if (action === 'copy-link') {
@@ -8897,6 +9797,7 @@
         await navigator.clipboard.writeText(link);
       } else if (action === 'settings') {
         const summary = await api(`/api/rooms/${encodeURIComponent(roomId)}`);
+        roomSettingsRoomId = summary.roomId;
         roomSettingsTitle.textContent = summary.name || 'Room Settings';
         roomSettingsMeta.textContent = [
           summary.isDirect ? 'Direct message' : 'Room',
@@ -8905,6 +9806,15 @@
         ]
           .filter(Boolean)
           .join(' · ');
+        if (roomSettingsName) roomSettingsName.value = summary.name || '';
+        if (roomSettingsTopic) roomSettingsTopic.value = summary.topic || '';
+        if (roomSettingsJoinRule) {
+          roomSettingsJoinRule.value = summary.joinRule || summary.join_rule || 'invite';
+        }
+        if (roomSettingsError) {
+          roomSettingsError.hidden = true;
+          roomSettingsError.textContent = '';
+        }
         roomSettingsId.value = summary.roomId;
         roomSettingsLink.value = summary.permalink;
         if (typeof roomSettingsDialog.showModal === 'function') {
@@ -8968,21 +9878,9 @@
       } else if (action === 'edit') {
         setPendingEdit(target);
       } else if (action === 'receipts') {
-        if (!messageReceiptsDialog || !messageReceiptsList) return;
-        messageReceiptsList.innerHTML = '';
-        const readers = Array.isArray(target.readBy) ? target.readBy : [];
-        if (!readers.length) {
-          const empty = document.createElement('li');
-          empty.textContent = 'No read receipts yet.';
-          messageReceiptsList.appendChild(empty);
-        } else {
-          for (const entry of readers) {
-            const li = document.createElement('li');
-            li.textContent = entry.displayName || entry.userId || 'Unknown';
-            messageReceiptsList.appendChild(li);
-          }
-        }
-        if (typeof messageReceiptsDialog.showModal === 'function') messageReceiptsDialog.showModal();
+        openMessageReceiptsDialog(target);
+      } else if (action === 'forward') {
+        openForwardDialog(target);
       } else if (action === 'view-source') {
         let source = target.source;
         if (!source) {
@@ -10092,11 +10990,11 @@
   let lightboxPanX = 0;
   let lightboxPanY = 0;
   let lightboxDragging = false;
-  let lightboxDragOrigin = null;
 
-  const LIGHTBOX_ZOOM_MIN = 0.25;
-  const LIGHTBOX_ZOOM_MAX = 4;
-  const LIGHTBOX_ZOOM_STEP = 0.25;
+  // Match Paarrot useZoom(0.2) / usePan
+  const LIGHTBOX_ZOOM_MIN = 0.1;
+  const LIGHTBOX_ZOOM_MAX = 5;
+  const LIGHTBOX_ZOOM_STEP = 0.2;
 
   function mediaProxyUrl(remoteUrl, { download = false, filename = 'image' } = {}) {
     const params = new URLSearchParams({ url: remoteUrl });
@@ -10150,26 +11048,104 @@
     }
   }
 
-  function applyLightboxTransform() {
-    if (!imageLightboxImg) return;
-    const zoomed = lightboxZoom > 1.01;
-    imageLightboxImg.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxZoom})`;
-    imageLightboxStage?.classList.toggle('is-zoomed', zoomed);
+  function lightboxCanPan() {
+    if (!isLightboxOpen()) return false;
+    const limits = getLightboxPanLimits();
+    return limits.maxX > 0.5 || limits.maxY > 0.5;
+  }
+
+  function syncLightboxZoomButtons() {
+    imageLightboxZoomOut?.classList.toggle('is-active', lightboxZoom < 0.999);
+    imageLightboxZoomIn?.classList.toggle('is-active', lightboxZoom > 1.001);
     if (imageLightboxZoomLabel) {
       imageLightboxZoomLabel.textContent = `${Math.round(lightboxZoom * 100)}%`;
     }
   }
 
-  function setLightboxZoom(next, { resetPan = false } = {}) {
-    const clamped = Math.min(
-      LIGHTBOX_ZOOM_MAX,
-      Math.max(LIGHTBOX_ZOOM_MIN, Math.round(next / LIGHTBOX_ZOOM_STEP) * LIGHTBOX_ZOOM_STEP),
-    );
-    lightboxZoom = Number(clamped.toFixed(2));
-    if (resetPan || lightboxZoom <= 1) {
-      lightboxPanX = 0;
-      lightboxPanY = 0;
+  function getLightboxPanLimits() {
+    if (!imageLightboxImg || !imageLightboxStage) {
+      return { maxX: 0, maxY: 0 };
     }
+    const stage = imageLightboxStage.getBoundingClientRect();
+    if (stage.width < 1 || stage.height < 1) {
+      return { maxX: 0, maxY: 0 };
+    }
+
+    // Layout size ignores CSS transforms — multiply by zoom for on-screen size.
+    const baseW = imageLightboxImg.offsetWidth || 0;
+    const baseH = imageLightboxImg.offsetHeight || 0;
+    const nw = imageLightboxImg.naturalWidth || 0;
+    const nh = imageLightboxImg.naturalHeight || 0;
+
+    let dispW = baseW * lightboxZoom;
+    let dispH = baseH * lightboxZoom;
+    if ((!dispW || !dispH) && nw && nh) {
+      const fit = Math.min(stage.width / nw, stage.height / nh);
+      dispW = nw * fit * lightboxZoom;
+      dispH = nh * fit * lightboxZoom;
+    }
+
+    // Hard contain: only pan the overflow. Image can never leave the frame.
+    return {
+      maxX: Math.max(0, (dispW - stage.width) / 2),
+      maxY: Math.max(0, (dispH - stage.height) / 2),
+    };
+  }
+
+  function clampLightboxPan() {
+    const { maxX, maxY } = getLightboxPanLimits();
+    lightboxPanX = Math.min(maxX, Math.max(-maxX, lightboxPanX));
+    lightboxPanY = Math.min(maxY, Math.max(-maxY, lightboxPanY));
+  }
+
+  function applyLightboxTransform() {
+    if (!imageLightboxImg) return;
+    clampLightboxPan();
+    imageLightboxImg.style.transform = `translate(${lightboxPanX}px, ${lightboxPanY}px) scale(${lightboxZoom})`;
+    const canPan = lightboxCanPan();
+    imageLightboxImg.style.cursor = lightboxDragging
+      ? 'grabbing'
+      : canPan
+        ? 'grab'
+        : 'default';
+    imageLightboxStage?.classList.toggle('is-zoomed', canPan);
+    imageLightboxStage?.classList.toggle('is-panning', lightboxDragging);
+    if (imageLightboxStage) {
+      imageLightboxStage.style.cursor = lightboxDragging
+        ? 'grabbing'
+        : canPan
+          ? 'grab'
+          : 'default';
+    }
+    syncLightboxZoomButtons();
+  }
+
+  function setLightboxZoom(next) {
+    const raw = Number(next);
+    if (!Number.isFinite(raw)) return;
+    const clamped = Math.min(LIGHTBOX_ZOOM_MAX, Math.max(LIGHTBOX_ZOOM_MIN, raw));
+    lightboxZoom = Number(clamped.toFixed(2));
+    if (Math.abs(lightboxZoom - 1) < 0.001) {
+      lightboxZoom = 1;
+    }
+    // Re-clamp after zoom; don't force pan to 0 unless it fully fits.
+    applyLightboxTransform();
+  }
+
+  function setLightboxScrollLock(locked) {
+    document.documentElement.classList.toggle('lightbox-open', Boolean(locked));
+    document.body?.classList.toggle('lightbox-open', Boolean(locked));
+  }
+
+  function onLightboxScrollBlock(event) {
+    if (!isLightboxOpen()) return;
+    event.preventDefault();
+    if (!lightboxCanPan()) return;
+    const dx = event.shiftKey ? event.deltaY : event.deltaX || 0;
+    const dy = event.shiftKey ? 0 : event.deltaY || 0;
+    if (!dx && !dy) return;
+    lightboxPanX -= dx;
+    lightboxPanY -= dy;
     applyLightboxTransform();
   }
 
@@ -10190,6 +11166,7 @@
     lightboxZoom = 1;
     lightboxPanX = 0;
     lightboxPanY = 0;
+    lightboxDragging = false;
     if (imageLightboxName) {
       imageLightboxName.textContent = filename;
       imageLightboxName.title = filename;
@@ -10198,27 +11175,85 @@
     imageLightboxImg.alt = filename;
     applyLightboxTransform();
     if (imageLightbox) imageLightbox.hidden = false;
+    setLightboxScrollLock(true);
   }
 
   function closeImageLightbox() {
     if (!imageLightbox) return;
+    stopLightboxPan();
     imageLightbox.hidden = true;
     lightboxState = null;
     lightboxDragging = false;
-    lightboxDragOrigin = null;
     lightboxZoom = 1;
     lightboxPanX = 0;
     lightboxPanY = 0;
     if (imageLightboxImg) {
       imageLightboxImg.src = '';
       imageLightboxImg.style.transform = '';
+      imageLightboxImg.style.cursor = '';
     }
     imageLightboxStage?.classList.remove('is-zoomed', 'is-panning');
     if (imageLightboxName) {
       imageLightboxName.textContent = '';
       imageLightboxName.title = '';
     }
+    syncLightboxZoomButtons();
     if (imageLightboxZoomLabel) imageLightboxZoomLabel.textContent = '100%';
+    setLightboxScrollLock(false);
+  }
+
+  function onLightboxPanMove(event) {
+    if (!lightboxDragging) return;
+    event.preventDefault();
+    // Prefer movementX/Y; fall back for older events
+    const dx = event.movementX || 0;
+    const dy = event.movementY || 0;
+    if (!dx && !dy) return;
+    lightboxPanX += dx;
+    lightboxPanY += dy;
+    applyLightboxTransform();
+  }
+
+  function stopLightboxPan(event) {
+    if (event) event.preventDefault();
+    if (!lightboxDragging) {
+      document.removeEventListener('pointermove', onLightboxPanMove);
+      document.removeEventListener('pointerup', stopLightboxPan);
+      document.removeEventListener('pointercancel', stopLightboxPan);
+      return;
+    }
+    lightboxDragging = false;
+    document.removeEventListener('pointermove', onLightboxPanMove);
+    document.removeEventListener('pointerup', stopLightboxPan);
+    document.removeEventListener('pointercancel', stopLightboxPan);
+    if (event?.pointerId != null) {
+      try {
+        imageLightboxStage?.releasePointerCapture?.(event.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    applyLightboxTransform();
+  }
+
+  function startLightboxPan(event) {
+    if (!isLightboxOpen() || !lightboxCanPan()) return;
+    if (event.button != null && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    lightboxDragging = true;
+    // Keep dragging even if the cursor leaves the image / stage.
+    if (imageLightboxStage?.setPointerCapture && event.pointerId != null) {
+      try {
+        imageLightboxStage.setPointerCapture(event.pointerId);
+      } catch {
+        // ignore
+      }
+    }
+    document.addEventListener('pointermove', onLightboxPanMove);
+    document.addEventListener('pointerup', stopLightboxPan);
+    document.addEventListener('pointercancel', stopLightboxPan);
+    applyLightboxTransform();
   }
 
   function buildMessageImage(msg) {
@@ -10843,7 +11878,8 @@
       const fingerprint = `${contentFingerprint}|rb:${messages
         .map((msg) => (msg.readBy || []).length)
         .join(',')}`;
-      // Quiet polls / receipt ticks: don't rebuild the DOM when only read receipts changed.
+      // Quiet polls: skip full rebuild when message content is unchanged, but still
+      // patch the Seen by row when receipts move.
       if (
         quiet &&
         !pinBottom &&
@@ -10852,6 +11888,10 @@
         messageScrollRoomId === roomId &&
         contentFingerprint === lastMessagesContentFingerprint
       ) {
+        if (fingerprint !== lastMessagesFingerprint) {
+          activeRoomMessages = messages;
+          syncMessageReceiptsUi(messages);
+        }
         lastMessagesFingerprint = fingerprint;
         return;
       }
@@ -10907,20 +11947,7 @@
       const MESSAGE_GROUP_MS = 5 * 60 * 1000;
       // Only the latest message you sent may show read receipts — sending again
       // clears checks on older ones until peers catch up.
-      let latestMineEventId = null;
-      for (let i = messages.length - 1; i >= 0; i -= 1) {
-        const candidate = messages[i];
-        if (!candidate?.isMine || candidate.redacted) continue;
-        if (candidate.systemKind) continue;
-        if (
-          candidate.type !== 'm.room.message' &&
-          !candidate.encrypted
-        ) {
-          continue;
-        }
-        latestMineEventId = candidate.eventId || null;
-        break;
-      }
+      const latestMineEventId = latestMineMessageEventId(messages);
       for (const msg of messages) {
         if (msg.redacted && !showHiddenEventsEnabled()) continue;
         if (msg.systemKind === 'membership' && hideMembershipEnabled()) continue;
@@ -11224,33 +12251,8 @@
           Array.isArray(msg.readBy) &&
           msg.readBy.length > 0
         ) {
-          const receipts = document.createElement('div');
-          receipts.className = 'message-receipts';
-          const names = msg.readBy
-            .map((entry) => {
-              const name = entry.displayName || entry.userId || '';
-              if (name.startsWith('@')) {
-                const local = name.slice(1).split(':')[0];
-                return local || name;
-              }
-              return name;
-            })
-            .filter(Boolean);
-          receipts.title = names.join(', ');
-          const mark = document.createElement('span');
-          mark.className = 'message-receipt-mark';
-          mark.setAttribute('aria-hidden', 'true');
-          mark.textContent = '✓✓';
-          receipts.appendChild(mark);
-          const label = document.createElement('span');
-          label.className = 'message-receipt-names';
-          const shown = names.slice(0, 3);
-          label.textContent =
-            names.length > shown.length
-              ? `${shown.join(', ')} +${names.length - shown.length}`
-              : shown.join(', ');
-          receipts.appendChild(label);
-          el.querySelector('.message-main')?.appendChild(receipts);
+          const receipts = buildMessageReceiptsButton(msg);
+          if (receipts) el.querySelector('.message-main')?.appendChild(receipts);
         }
 
         messageList.appendChild(el);
@@ -11334,6 +12336,8 @@
 
     composerInput.value = '';
     clearMentions();
+    clearComposerDraft(activeRoomId);
+    hideComposerAutocomplete();
     autosizeComposer();
     closeComposerPanels();
     composerInput.focus();
@@ -12144,59 +13148,19 @@
   imageLightboxZoomOut?.addEventListener('click', () => {
     setLightboxZoom(lightboxZoom - LIGHTBOX_ZOOM_STEP);
   });
+  // Paarrot chip: toggle 100% ↔ 200%
   imageLightboxZoomLabel?.addEventListener('click', () => {
-    setLightboxZoom(1, { resetPan: true });
+    setLightboxZoom(lightboxZoom === 1 ? 2 : 1);
   });
-  imageLightboxStage?.addEventListener('click', (event) => {
-    if (event.target !== imageLightboxStage) return;
-    if (lightboxZoom > 1.01) {
-      setLightboxZoom(1, { resetPan: true });
-    }
-  });
-  imageLightboxStage?.addEventListener(
-    'wheel',
-    (event) => {
-      if (!isLightboxOpen()) return;
-      event.preventDefault();
-      const delta = event.deltaY > 0 ? -LIGHTBOX_ZOOM_STEP : LIGHTBOX_ZOOM_STEP;
-      setLightboxZoom(lightboxZoom + delta);
-    },
-    { passive: false },
-  );
+  // Pan: drag the image or empty stage; continues if pointer leaves either edge
+  imageLightboxImg?.addEventListener('pointerdown', startLightboxPan);
   imageLightboxStage?.addEventListener('pointerdown', (event) => {
-    if (!isLightboxOpen() || lightboxZoom <= 1.01) return;
-    if (event.button !== 0) return;
-    lightboxDragging = true;
-    lightboxDragOrigin = {
-      x: event.clientX,
-      y: event.clientY,
-      panX: lightboxPanX,
-      panY: lightboxPanY,
-    };
-    imageLightboxStage.classList.add('is-panning');
-    imageLightboxStage.setPointerCapture?.(event.pointerId);
+    if (event.target === imageLightboxImg) return;
+    startLightboxPan(event);
   });
-  imageLightboxStage?.addEventListener('pointermove', (event) => {
-    if (!lightboxDragging || !lightboxDragOrigin) return;
-    lightboxPanX = lightboxDragOrigin.panX + (event.clientX - lightboxDragOrigin.x);
-    lightboxPanY = lightboxDragOrigin.panY + (event.clientY - lightboxDragOrigin.y);
-    applyLightboxTransform();
-  });
-  const endLightboxPan = (event) => {
-    if (!lightboxDragging) return;
-    lightboxDragging = false;
-    lightboxDragOrigin = null;
-    imageLightboxStage?.classList.remove('is-panning');
-    if (event?.pointerId != null) {
-      try {
-        imageLightboxStage?.releasePointerCapture?.(event.pointerId);
-      } catch {
-        // ignore
-      }
-    }
-  };
-  imageLightboxStage?.addEventListener('pointerup', endLightboxPan);
-  imageLightboxStage?.addEventListener('pointercancel', endLightboxPan);
+  // Wheel pans the image; block chat scroll underneath
+  document.addEventListener('wheel', onLightboxScrollBlock, { capture: true, passive: false });
+  document.addEventListener('touchmove', onLightboxScrollBlock, { capture: true, passive: false });
 
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
@@ -12212,7 +13176,7 @@
       setLightboxZoom(lightboxZoom - LIGHTBOX_ZOOM_STEP);
     } else if (event.key === '0') {
       event.preventDefault();
-      setLightboxZoom(1, { resetPan: true });
+      setLightboxZoom(1);
     }
   });
 
@@ -12676,6 +13640,7 @@
       void refreshAccountDataList();
     }
   });
+  applyDeveloperToolsVisibility();
   devtoolsCopyTokenBtn?.addEventListener('click', async () => {
     try {
       const data = await api('/api/devtools/access-token');
@@ -12972,6 +13937,10 @@
   prefEnterForNewline?.addEventListener('change', () => {
     writeBoolPref('relay.enterForNewline', prefEnterForNewline.checked);
   });
+  prefSpellcheck?.addEventListener('change', () => {
+    writeBoolPref('relay.spellcheck', prefSpellcheck.checked);
+    applySpellcheckPref();
+  });
   prefMarkdownFormatting?.addEventListener('change', () => {
     writeBoolPref('relay.markdownFormatting', prefMarkdownFormatting.checked);
   });
@@ -13245,4 +14214,78 @@
   }
 
   void bootstrap();
+
+  applySpellcheckPref();
+
+  composerInput?.addEventListener('input', () => {
+    scheduleDraftSave();
+    updateComposerAutocomplete();
+  });
+  composerInput?.addEventListener('keydown', (event) => {
+    if (!composerAutocomplete || composerAutocomplete.hidden) return;
+    if (event.key === 'ArrowDown') {
+      event.preventDefault();
+      autocompleteState.index = (autocompleteState.index + 1) % Math.max(1, autocompleteState.items.length);
+      renderComposerAutocomplete();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
+      autocompleteState.index =
+        (autocompleteState.index - 1 + autocompleteState.items.length) %
+        Math.max(1, autocompleteState.items.length);
+      renderComposerAutocomplete();
+    } else if (event.key === 'Enter' || event.key === 'Tab') {
+      if (autocompleteState.items.length) {
+        event.preventDefault();
+        applyComposerAutocomplete();
+      }
+    } else if (event.key === 'Escape') {
+      hideComposerAutocomplete();
+    }
+  });
+  composerInput?.addEventListener('blur', () => {
+    window.setTimeout(() => hideComposerAutocomplete(), 120);
+  });
+
+  forwardMessageSearch?.addEventListener('input', () => {
+    renderForwardRoomList(forwardMessageSearch.value);
+  });
+  forwardMessageCancel?.addEventListener('click', () => forwardMessageDialog?.close?.());
+  forwardMessageForm?.addEventListener('submit', (event) => event.preventDefault());
+
+  roomSettingsCancel?.addEventListener('click', () => roomSettingsDialog?.close?.());
+  roomSettingsForm?.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    if (!roomSettingsRoomId) return;
+    if (roomSettingsError) {
+      roomSettingsError.hidden = true;
+      roomSettingsError.textContent = '';
+    }
+    try {
+      await api(`/api/rooms/${encodeURIComponent(roomSettingsRoomId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name: roomSettingsName?.value,
+          topic: roomSettingsTopic?.value,
+          joinRule: roomSettingsJoinRule?.value,
+        }),
+      });
+      roomSettingsDialog?.close?.();
+      await refreshRooms();
+      const room = roomCatalog.find((entry) => entry.roomId === roomSettingsRoomId);
+      if (room) updateTimelineHead(room);
+    } catch (error) {
+      if (roomSettingsError) {
+        roomSettingsError.hidden = false;
+        roomSettingsError.textContent = (error.message || String(error)).replace(/^MatrixError:\s*/i, '');
+      }
+    }
+  });
+
+  sasVerifyMatch?.addEventListener('click', () => void confirmSas(true));
+  sasVerifyMismatch?.addEventListener('click', () => void confirmSas(false));
+  sasVerifyCancel?.addEventListener('click', () => {
+    void confirmSas(false);
+    sasVerifyDialog?.close?.();
+  });
+
 })();

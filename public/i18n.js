@@ -25,7 +25,7 @@
       'settings.messages': 'Messages',
       'settings.themeOptions': 'Theme options',
       'settings.theme': 'Theme',
-      'composer.placeholder': 'Send a message…',
+      'composer.placeholder': 'Send a message...',
       'composer.emoji': 'Emoji & stickers',
       'composer.gif': 'GIF',
       'composer.attach': 'Attach image',
