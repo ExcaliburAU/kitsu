@@ -9188,12 +9188,18 @@ html.monochrome .theme-colour-swatch-face {
     background: var(--surface);
     overflow: auto;
     -webkit-overflow-scrolling: touch;
-    box-shadow: 12px 0 32px rgba(0, 0, 0, 0.28);
+    box-shadow: none;
   }
 
   .chat-view.is-rooms-open .workspace-rail,
   .chat-view.is-rooms-open .room-rail {
     transform: translate3d(0, 0, 0);
+  }
+
+  /* Floating pill sits on the chat; hide it while the rooms drawer is open */
+  .chat-view.is-rooms-open .jump-to-latest,
+  .chat-view.is-right-drawer-open .jump-to-latest {
+    display: none !important;
   }
 
   .workspace-rail-spaces,
@@ -9254,7 +9260,7 @@ html.monochrome .theme-colour-swatch-face {
     background: var(--surface);
     transform: translate3d(100%, 0, 0);
     transition: transform 0.28s var(--mobile-drawer-ease);
-    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.28);
+    box-shadow: none;
     pointer-events: none;
   }
 
