@@ -1058,12 +1058,98 @@
     };
   }
 
-  function getTimeline(roomId) {
+  function isRoomTimelineAtStart(roomId) {
+    const room = client?.getRoom?.(roomId);
+    if (!room) return true;
+    try {
+      const Matrix = sdk();
+      const backwards = Matrix.EventTimeline?.BACKWARDS ?? 'b';
+      const token = room.getLiveTimeline?.()?.getPaginationToken?.(backwards);
+      return token == null;
+    } catch {
+      return true;
+    }
+  }
+
+  function countRoomChatEvents(roomId) {
+    const room = client?.getRoom?.(roomId);
+    if (!room) return 0;
+    const events = room.getLiveTimeline?.()?.getEvents?.() || [];
+    let count = 0;
+    for (const event of events) {
+      const type = event.getType?.() || '';
+      if (
+        type === 'm.room.message' ||
+        type === 'm.room.encrypted' ||
+        type === 'm.reaction' ||
+        type === 'm.sticker'
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async function scrollbackRoom(roomId, limit = 100) {
+    if (!client) throw new Error('Not logged in');
+    const room = client.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const before = room.getLiveTimeline?.()?.getEvents?.()?.length || 0;
+    if (isRoomTimelineAtStart(roomId)) {
+      return { roomId, added: 0, eventCount: before, atStart: true };
+    }
+    const batch = Math.max(10, Math.min(200, Number(limit) || 100));
+    await client.scrollback(room, batch);
+    const after = room.getLiveTimeline?.()?.getEvents?.()?.length || 0;
+    return {
+      roomId,
+      added: Math.max(0, after - before),
+      eventCount: after,
+      atStart: isRoomTimelineAtStart(roomId),
+    };
+  }
+
+  async function ensureRoomHistory(
+    roomId,
+    { minEvents = 200, minMessages = 0, batchSize = 100, maxBatches = 40 } = {},
+  ) {
+    if (!client) throw new Error('Not logged in');
+    const room = client.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const targetEvents = Math.max(30, Math.min(8000, Number(minEvents) || 200));
+    const targetMessages = Math.max(0, Math.min(4000, Number(minMessages) || 0));
+    const size = Math.max(10, Math.min(200, Number(batchSize) || 100));
+    const batches = Math.max(1, Math.min(120, Number(maxBatches) || 40));
+    let runs = 0;
+    let addedTotal = 0;
+    while (runs < batches) {
+      const count = room.getLiveTimeline?.()?.getEvents?.()?.length || 0;
+      const chatCount = countRoomChatEvents(roomId);
+      if (count >= targetEvents && (!targetMessages || chatCount >= targetMessages)) break;
+      if (isRoomTimelineAtStart(roomId)) break;
+      const result = await scrollbackRoom(roomId, size);
+      runs += 1;
+      addedTotal += result.added || 0;
+      if (result.atStart || !result.added) break;
+    }
+    return {
+      roomId,
+      eventCount: room.getLiveTimeline?.()?.getEvents?.()?.length || 0,
+      messageCount: countRoomChatEvents(roomId),
+      added: addedTotal,
+      batches: runs,
+      atStart: isRoomTimelineAtStart(roomId),
+    };
+  }
+
+  function getTimeline(roomId, limit = 500) {
     const room = client?.getRoom?.(roomId);
     if (!room) return { roomId, messages: [], atStart: true, history: null };
     const events = room.getLiveTimeline?.()?.getEvents?.() || [];
+    const want = Math.max(1, Math.min(2500, Number(limit) || 500));
+    const slice = events.slice(-Math.min(events.length, want * 3));
     const messages = [];
-    for (const event of events) {
+    for (const event of slice) {
       const type = event.getType?.() || '';
       if (type === 'm.room.redaction') continue;
       if (event.isRelation?.('m.replace')) continue;
@@ -1076,7 +1162,6 @@
         type === 'm.room.avatar'
       ) {
         if (type.startsWith('m.room.') && type !== 'm.room.message' && type !== 'm.room.encrypted') {
-          // lightweight system rows
           messages.push({
             ...serializeEvent(room, event),
             systemKind: type === 'm.room.member' ? 'membership' : 'room',
@@ -1090,8 +1175,8 @@
     }
     return {
       roomId,
-      messages,
-      atStart: true,
+      messages: messages.slice(-want),
+      atStart: isRoomTimelineAtStart(roomId),
       history: null,
     };
   }
@@ -1188,7 +1273,7 @@
       console.warn('[kitsu-standalone] crypto init', error);
       lastError = error?.message || String(error);
     }
-    c.startClient({ initialSyncLimit: 30 });
+    c.startClient({ initialSyncLimit: 100, lazyLoadMembers: true });
     // ready flips on sync event
     window.setTimeout(() => {
       if (!ready) {
@@ -1333,7 +1418,65 @@
 
     const messagesMatch = path.match(/^\/api\/rooms\/([^/]+)\/messages$/);
     if (messagesMatch && method === 'GET') {
-      return jsonResponse(getTimeline(decodeURIComponent(messagesMatch[1])));
+      if (!client) return errorResponse('Not logged in', 401);
+      const roomId = decodeURIComponent(messagesMatch[1]);
+      const limit = Number(url.searchParams.get('limit') || 200);
+      const history =
+        url.searchParams.get('history') === '1' || url.searchParams.get('history') === 'true';
+      const minEvents = Number(url.searchParams.get('minEvents') || Math.max(limit, 400));
+      const minMessages = Number(url.searchParams.get('minMessages') || Math.max(limit, 300));
+      try {
+        let historyMeta = null;
+        if (history) {
+          historyMeta = await ensureRoomHistory(roomId, {
+            minEvents: Math.max(minEvents, minMessages),
+            minMessages,
+            batchSize: 100,
+            maxBatches: 80,
+          });
+        } else {
+          historyMeta = await ensureRoomHistory(roomId, {
+            minEvents: Math.max(limit * 2, 200),
+            minMessages: Math.min(400, Math.max(80, limit)),
+            batchSize: 100,
+            maxBatches: 40,
+          });
+        }
+        const timeline = getTimeline(roomId, limit);
+        return jsonResponse({
+          ...timeline,
+          atStart: historyMeta?.atStart ?? timeline.atStart,
+          history: historyMeta,
+        });
+      } catch (error) {
+        return errorResponse(error?.message || error, 400);
+      }
+    }
+
+    const olderMatch = path.match(/^\/api\/rooms\/([^/]+)\/messages\/older$/);
+    if (olderMatch && method === 'POST') {
+      if (!client) return errorResponse('Not logged in', 401);
+      const roomId = decodeURIComponent(olderMatch[1]);
+      const limit = Number(body?.limit || url.searchParams.get('limit') || 120);
+      const displayLimit = Number(body?.displayLimit || url.searchParams.get('displayLimit') || 500);
+      try {
+        const history = await ensureRoomHistory(roomId, {
+          minEvents: Math.max(displayLimit * 2, 200),
+          minMessages: Math.max(displayLimit, 200),
+          batchSize: Math.max(80, Math.min(200, limit)),
+          maxBatches: 6,
+        });
+        const timeline = getTimeline(roomId, displayLimit);
+        return jsonResponse({
+          roomId,
+          messages: timeline.messages,
+          added: history.added,
+          eventCount: history.eventCount,
+          atStart: history.atStart,
+        });
+      } catch (error) {
+        return errorResponse(error?.message || error, 400);
+      }
     }
 
     const sendMatch = path.match(/^\/api\/rooms\/([^/]+)\/send$/);

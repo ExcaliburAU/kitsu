@@ -1742,9 +1742,9 @@ class MatrixSession {
       }
     }
 
-    // Smaller first sync batch = faster ready; timeline still back-paginates on demand.
+    // Seed a larger first window; older history still back-paginates on demand.
     await client.startClient({
-      initialSyncLimit: 50,
+      initialSyncLimit: 100,
       lazyLoadMembers: true,
     });
 
@@ -4479,7 +4479,7 @@ class MatrixSession {
 
     const myId = this.client.getUserId();
     const events = room.getLiveTimeline().getEvents();
-    const fetchCount = Math.max(1, Math.min(800, (Number(limit) || 50) * 3));
+    const fetchCount = Math.max(1, Math.min(6000, (Number(limit) || 50) * 3));
     const slice = events.slice(-fetchCount);
     const out = [];
     const receiptsByEvent = this.getReadReceiptsByEventId(room);
@@ -4880,7 +4880,7 @@ class MatrixSession {
       });
     }
 
-    return grouped.slice(-Math.max(1, Math.min(500, Number(limit) || 50)));
+    return grouped.slice(-Math.max(1, Math.min(2500, Number(limit) || 50)));
   }
 
   async isRoomTimelineAtStart(roomId) {
@@ -4908,7 +4908,7 @@ class MatrixSession {
       };
     }
 
-    const batch = Math.max(10, Math.min(100, Number(limit) || 50));
+    const batch = Math.max(10, Math.min(200, Number(limit) || 50));
     await this.client.scrollback(room, batch);
     const after = room.getLiveTimeline()?.getEvents?.()?.length || 0;
     return {
@@ -4949,10 +4949,10 @@ class MatrixSession {
     const room = this.client.getRoom(roomId);
     if (!room) throw new Error('Room not found');
 
-    const targetEvents = Math.max(30, Math.min(800, Number(minEvents) || 120));
-    const targetMessages = Math.max(0, Math.min(500, Number(minMessages) || 0));
-    const size = Math.max(10, Math.min(100, Number(batchSize) || 50));
-    const batches = Math.max(1, Math.min(40, Number(maxBatches) || 20));
+    const targetEvents = Math.max(30, Math.min(8000, Number(minEvents) || 120));
+    const targetMessages = Math.max(0, Math.min(4000, Number(minMessages) || 0));
+    const size = Math.max(10, Math.min(200, Number(batchSize) || 50));
+    const batches = Math.max(1, Math.min(120, Number(maxBatches) || 20));
     let runs = 0;
     let addedTotal = 0;
 
@@ -4983,11 +4983,11 @@ class MatrixSession {
    * Pull recent history from the HS when the live timeline is too thin
    * (common after restart — sync only seeds a small window).
    */
-  async hydrateRoomTimeline(roomId, { minMessages = 80, maxBatches = 20 } = {}) {
+  async hydrateRoomTimeline(roomId, { minMessages = 80, maxBatches = 40 } = {}) {
     if (!this.client) return null;
     const room = this.client.getRoom(roomId);
     if (!room) return null;
-    const want = Math.max(20, Math.min(300, Number(minMessages) || 80));
+    const want = Math.max(20, Math.min(2000, Number(minMessages) || 80));
     const have = this.countRoomChatEvents(roomId);
     if (have >= want) {
       return {
@@ -5000,9 +5000,9 @@ class MatrixSession {
       };
     }
     return this.ensureRoomHistory(roomId, {
-      minEvents: Math.max(want * 2, 100),
+      minEvents: Math.max(want * 2, 200),
       minMessages: want,
-      batchSize: 60,
+      batchSize: 100,
       maxBatches,
     });
   }

@@ -12361,17 +12361,17 @@
         const displayLimit =
           Number(limit) ||
           (history
-            ? 200
-            : Math.max(120, activeRoomId === roomId ? activeRoomMessages.length || 0 : 0, 120));
+            ? 500
+            : Math.max(200, activeRoomId === roomId ? activeRoomMessages.length || 0 : 0, 200));
         const qs = new URLSearchParams({
-          limit: String(Math.min(500, displayLimit)),
+          limit: String(Math.min(2500, displayLimit)),
         });
         if (history) {
           qs.set('history', '1');
-          qs.set('minEvents', String(Math.max(displayLimit, 160)));
+          qs.set('minEvents', String(Math.max(displayLimit * 2, 400)));
           qs.set(
             'minMessages',
-            String(Math.max(Number(minMessages) || 0, displayLimit, 80)),
+            String(Math.max(Number(minMessages) || 0, displayLimit, 300)),
           );
           if (!quiet && messageList && activeRoomId === roomId) {
             const status = document.createElement('div');
@@ -12862,25 +12862,42 @@
     const status = messageList?.querySelector('.timeline-history-status:not(.timeline-history-status--start)');
     if (status) status.textContent = 'Loading earlier messages…';
     try {
-      const data = await api(`/api/rooms/${encodeURIComponent(roomId)}/messages/older`, {
-        method: 'POST',
-        body: JSON.stringify({ limit: 80, displayLimit: 300 }),
-      });
-      if (activeRoomId !== roomId) return;
-      timelineAtStart = Boolean(data.atStart) || !data.added;
-      if (!data.added) {
-        if (status) {
-          status.classList.add('timeline-history-status--start');
-          status.textContent = 'Beginning of conversation';
+      // Pull several pages while the user stays near the top so history isn't capped at a few days.
+      let rounds = 0;
+      let lastAdded = 0;
+      while (rounds < 8 && activeRoomId === roomId && !timelineAtStart) {
+        const displayLimit = Math.min(
+          2500,
+          Math.max(400, (activeRoomMessages.length || 0) + 200),
+        );
+        const data = await api(`/api/rooms/${encodeURIComponent(roomId)}/messages/older`, {
+          method: 'POST',
+          body: JSON.stringify({ limit: 120, displayLimit: displayLimit }),
+        });
+        if (activeRoomId !== roomId) return;
+        timelineAtStart = Boolean(data.atStart);
+        lastAdded = Number(data.added) || 0;
+        if (!lastAdded) {
+          timelineAtStart = true;
+          break;
         }
-        return;
+        await refreshMessages(roomId, {
+          quiet: true,
+          preserveScroll: true,
+          messages: data.messages || [],
+          atStart: data.atStart,
+          limit: displayLimit,
+        });
+        rounds += 1;
+        // Stop chaining once the user has scrolled away from the top.
+        if ((messageList?.scrollTop || 0) > 160) break;
       }
-      await refreshMessages(roomId, {
-        quiet: true,
-        preserveScroll: true,
-        messages: data.messages || [],
-        atStart: data.atStart,
-      });
+      if (timelineAtStart && status) {
+        status.classList.add('timeline-history-status--start');
+        status.textContent = 'Beginning of conversation';
+      } else if (status && lastAdded) {
+        status.textContent = 'Scroll up for earlier messages';
+      }
     } catch (error) {
       console.error(error);
       if (status) status.textContent = 'Could not load earlier messages';

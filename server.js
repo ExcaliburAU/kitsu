@@ -987,15 +987,15 @@ app.get('/api/rooms/:roomId/messages', async (req, res) => {
     // so messages from other clients while offline would otherwise be missing.
     if (history) {
       historyMeta = await matrix.ensureRoomHistory(req.params.roomId, {
-        minEvents,
+        minEvents: Math.max(minEvents, minMessages),
         minMessages,
-        batchSize: 60,
-        maxBatches: 25,
+        batchSize: 100,
+        maxBatches: 80,
       });
     } else {
       historyMeta = await matrix.hydrateRoomTimeline(req.params.roomId, {
-        minMessages: Math.min(100, Math.max(40, Number(limit) || 50)),
-        maxBatches: 15,
+        minMessages: Math.min(400, Math.max(80, Number(limit) || 50)),
+        maxBatches: 40,
       });
     }
     const atStart = await matrix.isRoomTimelineAtStart(req.params.roomId);
@@ -1015,16 +1015,22 @@ app.post('/api/rooms/:roomId/messages/older', async (req, res) => {
     res.status(401).json({ error: 'Not logged in' });
     return;
   }
-  const limit = Number(req.body?.limit || req.query.limit || 50);
-  const displayLimit = Number(req.body?.displayLimit || req.query.displayLimit || 200);
+  const limit = Number(req.body?.limit || req.query.limit || 100);
+  const displayLimit = Number(req.body?.displayLimit || req.query.displayLimit || 500);
   try {
-    const scroll = await matrix.scrollbackRoom(req.params.roomId, limit);
+    // One API call can backfill several HS pages so scroll-up reaches older history faster.
+    const history = await matrix.ensureRoomHistory(req.params.roomId, {
+      minEvents: Math.max(displayLimit * 2, 200),
+      minMessages: Math.max(displayLimit, 200),
+      batchSize: Math.max(80, Math.min(200, limit)),
+      maxBatches: 6,
+    });
     res.json({
       roomId: req.params.roomId,
       messages: await matrix.getRoomTimeline(req.params.roomId, displayLimit),
-      added: scroll.added,
-      eventCount: scroll.eventCount,
-      atStart: scroll.atStart,
+      added: history.added,
+      eventCount: history.eventCount,
+      atStart: history.atStart,
     });
   } catch (error) {
     res.status(400).json({ error: error?.message || String(error) });
