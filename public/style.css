@@ -9142,11 +9142,28 @@ html.monochrome .theme-colour-swatch-face {
     margin: 0;
     padding: 0;
     border: 0;
+    /* Global `button` styles make this a giant primary pill — reset hard */
+    border-radius: 0;
     background: rgba(0, 0, 0, 0.48);
+    color: transparent;
+    font-weight: inherit;
+    box-shadow: none;
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.22s ease;
+    -webkit-appearance: none;
+    appearance: none;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  .mobile-nav-overlay:hover,
+  .mobile-nav-overlay:active,
+  .mobile-nav-overlay:focus,
+  .mobile-nav-overlay:focus-visible {
+    background: rgba(0, 0, 0, 0.48);
+    color: transparent;
+    outline: none;
+    box-shadow: none;
   }
 
   .chat-view.is-rooms-open .mobile-nav-overlay,
@@ -9295,6 +9312,13 @@ html.monochrome .theme-colour-swatch-face {
 
 .mobile-rooms-btn {
   display: none;
+}
+
+.mobile-nav-overlay {
+  border-radius: 0;
+  box-shadow: none;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .mobile-nav-overlay[hidden] {

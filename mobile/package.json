@@ -1,6 +1,6 @@
 {
   "name": "kitsu-mobile",
-  "version": "0.3.9",
+  "version": "0.3.10",
   "private": true,
   "description": "Kitsu Android — standalone Matrix client (Capacitor)",
   "scripts": {
