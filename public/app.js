@@ -4,6 +4,29 @@
   const mobileRoomsBtn = document.getElementById('mobileRoomsBtn');
   const mobileNavOverlay = document.getElementById('mobileNavOverlay');
   const loginForm = document.getElementById('loginForm');
+
+  // Capacitor / Android: keep WebView below status bar; mark native for CSS fallbacks.
+  void (async function bootNativeChrome() {
+    try {
+      const cap = window.Capacitor;
+      const native =
+        Boolean(cap?.isNativePlatform?.()) ||
+        location.protocol === 'capacitor:' ||
+        localStorage.getItem('kitsu.standalone') === '1';
+      if (!native) return;
+      document.documentElement.classList.add('is-native-app');
+      document.body?.classList.add('is-native-app');
+      const StatusBar = cap?.Plugins?.StatusBar;
+      if (StatusBar) {
+        await StatusBar.setOverlaysWebView?.({ overlay: false });
+        await StatusBar.setBackgroundColor?.({ color: '#1a1210' });
+        await StatusBar.setStyle?.({ style: 'DARK' });
+        await StatusBar.show?.();
+      }
+    } catch (error) {
+      console.warn('[kitsu] status bar boot', error);
+    }
+  })();
   const loginError = document.getElementById('loginError');
   const loginBtn = document.getElementById('loginBtn');
 

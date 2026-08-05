@@ -39,7 +39,7 @@ if (!html.includes('id="loginView"') || !html.includes('id="chatView"')) {
 // Force standalone mode for the packaged app.
 html = html.replace(
   '<head>',
-  `<head>\n    <script>try{localStorage.setItem('kitsu.standalone','1')}catch(e){}</script>`,
+  `<head>\n    <script>try{localStorage.setItem('kitsu.standalone','1');document.documentElement.classList.add('is-native-app')}catch(e){}</script>`,
 );
 
 // Drop the desktop dynamic boot; inject blocking script tags so app.js never races.

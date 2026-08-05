@@ -187,11 +187,31 @@ body {
 
 html {
   font-size: calc(16px * var(--app-text-scale, 1));
+  height: 100%;
 }
 
 body {
-  min-height: 100vh;
-  height: 100vh;
+  min-height: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+@supports (height: 100dvh) {
+  html,
+  body,
+  #app {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
 }
 
 .login-brand {
@@ -205,19 +225,6 @@ body {
   margin: 0;
   font-size: 1.35rem;
   letter-spacing: 0.04em;
-}
-
-#app {
-  height: 100vh;
-  max-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.chat-view {
-  flex: 1;
-  min-height: 0;
 }
 
 .topbar {
@@ -9032,6 +9039,16 @@ html.monochrome .theme-colour-swatch-face {
   :root {
     --mobile-nav-width: min(92vw, 360px);
     --mobile-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  /* Fallback padding if the WebView still draws under system bars */
+  html.is-native-app #app,
+  body.is-native-app #app {
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
+    box-sizing: border-box;
   }
 
   .chat-view {
@@ -9039,6 +9056,7 @@ html.monochrome .theme-colour-swatch-face {
     position: relative;
     overflow: hidden;
     width: 100%;
+    height: 100%;
     min-height: 0;
   }
 
@@ -9075,6 +9093,15 @@ html.monochrome .theme-colour-swatch-face {
     gap: 0.45rem;
   }
 
+  .timeline-head {
+    padding-left: max(0.75rem, env(safe-area-inset-left, 0px));
+    padding-right: max(0.75rem, env(safe-area-inset-right, 0px));
+  }
+
+  .composer {
+    padding-bottom: max(0.35rem, env(safe-area-inset-bottom, 0px));
+  }
+
   .mobile-nav-overlay {
     display: block;
     position: absolute;
@@ -9104,11 +9131,12 @@ html.monochrome .theme-colour-swatch-face {
     z-index: 45;
     height: 100%;
     max-height: 100dvh;
-    padding-top: env(safe-area-inset-top, 0);
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding-top: var(--safe-top);
+    padding-bottom: var(--safe-bottom);
     transform: translate3d(calc(-1 * var(--mobile-nav-width)), 0, 0);
     transition: transform 0.28s var(--mobile-drawer-ease);
     will-change: transform;
+    box-sizing: border-box;
   }
 
   .workspace-rail {
