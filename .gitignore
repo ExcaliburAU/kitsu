@@ -21,3 +21,6 @@ mobile/android/.idea/
 
 # Stream Deck build output
 streamdeck-plugin/dist/
+
+# Matrix browser bundle sourcemap (rebuild with npm run build:matrix-browser)
+public/vendor/matrix-browser.js.map

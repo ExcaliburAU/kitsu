@@ -1,24 +1,53 @@
 #!/usr/bin/env node
-/** Copy connector page + icons into www/ for Capacitor. */
+/**
+ * Sync desktop public/ UI into Capacitor www/ for standalone Android.
+ */
 const fs = require('fs');
 const path = require('path');
 
 const root = __dirname;
 const www = path.join(root, 'www');
-const icons = path.join(root, '..', 'assets');
+const publicDir = path.join(root, '..', 'public');
+
+function copyDir(src, dest) {
+  fs.mkdirSync(dest, { recursive: true });
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const from = path.join(src, entry.name);
+    const to = path.join(dest, entry.name);
+    if (entry.isDirectory()) copyDir(from, to);
+    else fs.copyFileSync(from, to);
+  }
+}
+
+const matrixBundle = path.join(publicDir, 'vendor', 'matrix-browser.js');
+if (!fs.existsSync(matrixBundle)) {
+  console.error('Missing public/vendor/matrix-browser.js — run: npm run build:matrix-browser');
+  process.exit(1);
+}
 
 fs.rmSync(www, { recursive: true, force: true });
-fs.mkdirSync(www, { recursive: true });
+copyDir(publicDir, www);
 
-for (const name of ['index.html', 'connector.js', 'connector.css']) {
-  fs.copyFileSync(path.join(root, 'src', name), path.join(www, name));
+const indexPath = path.join(www, 'index.html');
+let html = fs.readFileSync(indexPath, 'utf8');
+
+// Force standalone mode + explicit script tags (WebView-safe; no document.write).
+html = html.replace(
+  '<head>',
+  `<head>\n    <script>try{localStorage.setItem('kitsu.standalone','1')}catch(e){}</script>`,
+);
+html = html.replace(
+  /<script>\s*\(function \(\) \{[\s\S]*?kitsu-browser-api\.js[\s\S]*?<\/script>\s*/m,
+  '',
+);
+if (!html.includes('src="/vendor/matrix-browser.js"')) {
+  html = html.replace(
+    '<script defer src="/app.js"></script>',
+    `<script src="/vendor/matrix-browser.js"></script>
+    <script src="/vendor/kitsu-browser-api.js"></script>
+    <script defer src="/app.js"></script>`,
+  );
 }
 
-const iconSrc = path.join(icons, 'kitsu-fox.png');
-const iconAlt = path.join(icons, 'kitsu-icon.png');
-const pick = fs.existsSync(iconSrc) ? iconSrc : iconAlt;
-if (fs.existsSync(pick)) {
-  fs.copyFileSync(pick, path.join(www, 'icon.png'));
-}
-
-console.log('www synced');
+fs.writeFileSync(indexPath, html);
+console.log('www synced from public/ (standalone)');

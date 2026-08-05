@@ -1,8 +1,8 @@
 {
   "name": "kitsu-mobile",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Kitsu Android — companion WebView for the desktop Matrix client",
+  "description": "Kitsu Android — standalone Matrix client (Capacitor)",
   "scripts": {
     "sync": "node sync-www.js && npx cap sync android",
     "open": "npx cap open android",

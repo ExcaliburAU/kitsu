@@ -2382,6 +2382,19 @@
     <script defer src="/media-prefs.js"></script>
     <script defer src="/voip.js"></script>
     <script defer src="/i18n.js"></script>
+    <script>
+      (function () {
+        var standalone =
+          (window.Capacitor && typeof window.Capacitor.isNativePlatform === 'function' && window.Capacitor.isNativePlatform()) ||
+          localStorage.getItem('kitsu.standalone') === '1' ||
+          /(?:\?|&)standalone=1(?:&|$)/.test(location.search) ||
+          location.protocol === 'capacitor:';
+        if (!standalone) return;
+        localStorage.setItem('kitsu.standalone', '1');
+        document.write('<script src="/vendor/matrix-browser.js"><\\/script>');
+        document.write('<script src="/vendor/kitsu-browser-api.js"><\\/script>');
+      })();
+    </script>
     <script defer src="/app.js"></script>
   </body>
 </html>

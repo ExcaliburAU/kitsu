@@ -1,29 +1,27 @@
-# Kitsu Android (companion)
+# Kitsu Android (standalone)
 
-Phone UI for Kitsu. Matrix/crypto stay on the **desktop app** (or any Kitsu server on your LAN). The APK is a Capacitor shell that connects over Wi‑Fi.
+Native shell around the Kitsu UI with **matrix-js-sdk** in the WebView. Logs into your homeserver directly — no desktop companion required.
 
 ## Install (Obtainium)
 
-1. Open Obtainium → Add App
-2. Source: `https://github.com/ExcaliburAU/kitsu`
-3. APK filter (optional): `Kitsu-.*\.apk`
-4. Install from the latest release
-
-Direct APK: [Kitsu-0.2.0.apk](https://github.com/ExcaliburAU/kitsu/releases/download/v0.2.0/Kitsu-0.2.0.apk)
+1. Open Obtainium → Add App  
+2. Source: `https://github.com/ExcaliburAU/kitsu`  
+3. APK filter (optional): `Kitsu-.*\.apk`  
+4. Install from the latest release  
 
 ## Use
 
-1. Run **Kitsu desktop** on your PC (binds LAN on port **6080**).
-2. Settings → About → **Mobile companion** — copy the `http://192.168.x.x:6080` address.
-3. Open Kitsu on the phone (same Wi‑Fi) and Connect.
+1. Open Kitsu on the phone.  
+2. Enter homeserver (e.g. `exau.dev`), username, and password.  
+3. Chat syncs and encrypts on-device (Rust crypto WASM + IndexedDB).
 
 ## Develop
 
 ```bash
-cd mobile
-npm run build:apk
+# needs Node, JDK 21, Android SDK
+npm run mobile:apk
+# → mobile/android/app/build/outputs/apk/debug/app-debug.apk
+# → dist/Kitsu-0.3.0.apk
 ```
 
-## Later
-
-A fully offline Android client needs Matrix moved into the WebView (like Cinny). This companion ships first.
+`mobile:apk` builds `public/vendor/matrix-browser.js`, syncs `public/` into Capacitor `www/`, and assembles the debug APK.

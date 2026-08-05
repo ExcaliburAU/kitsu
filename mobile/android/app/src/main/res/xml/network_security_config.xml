@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-  <!-- Companion mode talks to Kitsu on the LAN over HTTP. -->
+  <!-- Allow cleartext for local/dev homeservers; production HS uses HTTPS. -->
   <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
