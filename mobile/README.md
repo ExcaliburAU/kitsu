@@ -2,15 +2,14 @@
 
 Phone UI for Kitsu. Matrix/crypto stay on the **desktop app** (or any Kitsu server on your LAN). The APK is a Capacitor shell that connects over Wi‑Fi.
 
-## Install
+## Install (Obtainium)
 
-Debug APK:
+1. Open Obtainium → Add App
+2. Source: `https://github.com/ExcaliburAU/kitsu`
+3. APK filter (optional): `Kitsu-.*\.apk`
+4. Install from the latest release
 
-`Relay/dist/Kitsu-0.2.0-android-debug.apk`
-
-```bash
-adb install -r dist/Kitsu-0.2.0-android-debug.apk
-```
+Direct APK: [Kitsu-0.2.0.apk](https://github.com/ExcaliburAU/kitsu/releases/download/v0.2.0/Kitsu-0.2.0.apk)
 
 ## Use
 
@@ -21,10 +20,6 @@ adb install -r dist/Kitsu-0.2.0-android-debug.apk
 ## Develop
 
 ```bash
-export PATH="/tmp/jdk-21/bin:/tmp/node-full/bin:$PATH"
-export JAVA_HOME=/tmp/jdk-21
-export ANDROID_HOME=/tmp/android-sdk
-
 cd mobile
 npm run build:apk
 ```
