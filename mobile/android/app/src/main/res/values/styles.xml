@@ -17,7 +17,7 @@
         <item name="android:statusBarColor">@color/statusBar</item>
         <item name="android:navigationBarColor">@color/navigationBar</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
-        <!-- Keep WebView below system bars (Capacitor StatusBar overlaysWebView=false). -->
+        <item name="android:windowBackground">@color/colorPrimary</item>
         <item name="android:windowLayoutInDisplayCutoutMode">default</item>
     </style>
 

@@ -17,6 +17,7 @@
         <item name="android:statusBarColor">@color/statusBar</item>
         <item name="android:navigationBarColor">@color/navigationBar</item>
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:windowBackground">@color/colorPrimary</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 
@@ -24,6 +25,7 @@
         <item name="android:background">@drawable/splash</item>
         <item name="android:statusBarColor">@color/statusBar</item>
         <item name="android:navigationBarColor">@color/navigationBar</item>
+        <item name="android:windowBackground">@color/colorPrimary</item>
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
     </style>
 </resources>
