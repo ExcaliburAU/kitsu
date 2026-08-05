@@ -215,6 +215,45 @@ body {
   }
 }
 
+/* Paarrot-Mobile pattern: edge-to-edge WebView + themed safe-area padding */
+html.is-native-app,
+html.android-capacitor {
+  --safe-area-inset-top: env(safe-area-inset-top, 0px);
+  --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-area-inset-left: env(safe-area-inset-left, 0px);
+  --safe-area-inset-right: env(safe-area-inset-right, 0px);
+}
+
+html.is-native-app body,
+html.android-capacitor body {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+  padding-left: var(--safe-area-inset-left);
+  padding-right: var(--safe-area-inset-right);
+  box-sizing: border-box;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+html.is-native-app #app,
+html.android-capacitor #app {
+  height: 100%;
+  max-height: 100%;
+}
+
+html.is-native-app .workspace-rail,
+html.is-native-app .room-rail,
+html.is-native-app .room-members-panel,
+html.is-native-app .shared-media-panel,
+html.android-capacitor .workspace-rail,
+html.android-capacitor .room-rail,
+html.android-capacitor .room-members-panel,
+html.android-capacitor .shared-media-panel {
+  padding-top: var(--safe-area-inset-top);
+  padding-bottom: var(--safe-area-inset-bottom);
+  box-sizing: border-box;
+}
+
 .login-brand {
   display: flex;
   align-items: center;

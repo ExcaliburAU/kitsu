@@ -5,7 +5,7 @@
   const mobileNavOverlay = document.getElementById('mobileNavOverlay');
   const loginForm = document.getElementById('loginForm');
 
-  // Capacitor / Android: keep WebView below status bar; mark native for CSS fallbacks.
+  // Capacitor / Android: Paarrot-style edge-to-edge + themed safe-area padding.
   void (async function bootNativeChrome() {
     try {
       const cap = window.Capacitor;
@@ -14,12 +14,29 @@
         location.protocol === 'capacitor:' ||
         localStorage.getItem('kitsu.standalone') === '1';
       if (!native) return;
-      document.documentElement.classList.add('is-native-app');
-      document.body?.classList.add('is-native-app');
+
+      const root = document.documentElement;
+      root.classList.add('is-native-app', 'android-capacitor');
+      document.body?.classList.add('is-native-app', 'android-capacitor');
+
+      // Safe-area CSS vars (env() is often 0px in Android WebView — Paarrot fallback).
+      root.style.setProperty('--safe-area-inset-top', 'env(safe-area-inset-top, 0px)');
+      root.style.setProperty('--safe-area-inset-bottom', 'env(safe-area-inset-bottom, 0px)');
+      root.style.setProperty('--safe-area-inset-left', 'env(safe-area-inset-left, 0px)');
+      root.style.setProperty('--safe-area-inset-right', 'env(safe-area-inset-right, 0px)');
+      requestAnimationFrame(() => {
+        const top = getComputedStyle(root).getPropertyValue('--safe-area-inset-top').trim();
+        const envWorking = top && top !== '0px' && top !== '0';
+        const android = Boolean(cap?.getPlatform?.() === 'android' || /Android/i.test(navigator.userAgent));
+        if (!envWorking && android) {
+          root.style.setProperty('--safe-area-inset-top', '28px');
+          root.style.setProperty('--safe-area-inset-bottom', '24px');
+        }
+      });
+
       const StatusBar = cap?.Plugins?.StatusBar;
       if (StatusBar) {
-        await StatusBar.setOverlaysWebView?.({ overlay: false });
-        await StatusBar.setBackgroundColor?.({ color: '#1a1210' });
+        await StatusBar.setOverlaysWebView?.({ overlay: true });
         await StatusBar.setStyle?.({ style: 'DARK' });
         await StatusBar.show?.();
       }
