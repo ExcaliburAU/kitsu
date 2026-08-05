@@ -52,7 +52,10 @@
 
   function sdk() {
     const s = window.MatrixBrowserSdk;
-    if (!s) throw new Error('matrix-js-sdk not loaded');
+    if (!s) {
+      const detail = window.__kitsuMatrixBootError?.message || 'matrix-js-sdk not loaded';
+      throw new Error(detail);
+    }
     return s;
   }
 
@@ -453,7 +456,7 @@
       return jsonResponse({
         ok: true,
         name: 'kitsu',
-        version: '0.3.2-android',
+        version: '0.3.3-android',
         standalone: true,
         mode: 'browser-matrix',
       });
