@@ -21,7 +21,7 @@ Native shell around the Kitsu UI with **matrix-js-sdk** in the WebView. Logs int
 # needs Node, JDK 21, Android SDK
 npm run mobile:apk
 # → mobile/android/app/build/outputs/apk/debug/app-debug.apk
-# → dist/Kitsu-0.3.0.apk
+# → dist/Kitsu-0.3.1.apk
 ```
 
 `mobile:apk` builds `public/vendor/matrix-browser.js`, syncs `public/` into Capacitor `www/`, and assembles the debug APK.

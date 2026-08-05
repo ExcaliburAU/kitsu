@@ -31,15 +31,24 @@ copyDir(publicDir, www);
 const indexPath = path.join(www, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
 
-// Force standalone mode + explicit script tags (WebView-safe; no document.write).
+if (!html.includes('id="loginView"') || !html.includes('id="chatView"')) {
+  console.error('sync-www: public/index.html looks truncated — aborting');
+  process.exit(1);
+}
+
+// Force standalone mode for the packaged app.
 html = html.replace(
   '<head>',
   `<head>\n    <script>try{localStorage.setItem('kitsu.standalone','1')}catch(e){}</script>`,
 );
+
+// Remove only the desktop document.write bootstrap (unique marker).
 html = html.replace(
-  /<script>\s*\(function \(\) \{[\s\S]*?kitsu-browser-api\.js[\s\S]*?<\/script>\s*/m,
+  /\n?\s*<script>\s*\(function \(\) \{\s*var standalone =[\s\S]*?document\.write\('<script src="\\\/vendor\\\/kitsu-browser-api\.js"><\\\\\\\/script>'\);\s*\}\)\(\);\s*<\/script>/m,
   '',
 );
+
+// Load matrix + API shim before app.js (blocking, in order).
 if (!html.includes('src="/vendor/matrix-browser.js"')) {
   html = html.replace(
     '<script defer src="/app.js"></script>',
@@ -49,5 +58,10 @@ if (!html.includes('src="/vendor/matrix-browser.js"')) {
   );
 }
 
+if (!html.includes('id="loginView"') || html.length < 50_000) {
+  console.error('sync-www: refused to write truncated index.html (%d bytes)', html.length);
+  process.exit(1);
+}
+
 fs.writeFileSync(indexPath, html);
-console.log('www synced from public/ (standalone)');
+console.log('www synced from public/ (standalone, %d bytes index)', html.length);
