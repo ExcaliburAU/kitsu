@@ -113,14 +113,26 @@
 
   async function fetchRemoteMedia(remoteUrl) {
     if (!remoteUrl) return null;
-    const response = await origFetch(remoteUrl, {
-      headers: authHeaders(),
-      redirect: 'follow',
-    });
-    if (!response.ok) return null;
-    const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
-    const buffer = await response.arrayBuffer();
-    return { contentType, buffer };
+    const tryOnce = async (withAuth) => {
+      try {
+        const response = await origFetch(remoteUrl, {
+          headers: withAuth ? authHeaders() : {},
+          redirect: 'follow',
+        });
+        if (!response.ok) return { response, buffer: null, contentType: null };
+        const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
+        const buffer = await response.arrayBuffer();
+        return { response, buffer, contentType };
+      } catch {
+        return { response: null, buffer: null, contentType: null };
+      }
+    };
+    let result = await tryOnce(true);
+    if (!result.buffer && result.response?.status === 401) {
+      result = await tryOnce(false);
+    }
+    if (!result.buffer) return null;
+    return { contentType: result.contentType, buffer: result.buffer };
   }
 
   function getAvatarMxc(userId, room = null) {
@@ -140,6 +152,34 @@
       } catch { /* ignore */ }
     }
     return null;
+  }
+
+  async function resolveAvatarMxc(userId, hint = null) {
+    if (typeof hint === 'string' && hint.startsWith('mxc://')) return hint;
+    const local = getAvatarMxc(userId);
+    if (local) return local;
+    if (!client || !userId) return null;
+    try {
+      const profile = await client.getProfileInfo(userId);
+      return profile?.avatar_url || null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Full-size media URL only — thumbnails strip Paarrot PNG tEXt metadata. */
+  function mxcToFullRemote(mxc) {
+    if (!client || !mxc || typeof mxc !== 'string' || !mxc.startsWith('mxc://')) return null;
+    try {
+      return (
+        client.mxcUrlToHttp(mxc, undefined, undefined, undefined, false, true, true) ||
+        client.mxcUrlToHttp(mxc, undefined, undefined, undefined, false, true) ||
+        client.mxcUrlToHttp(mxc) ||
+        null
+      );
+    } catch {
+      return null;
+    }
   }
 
   function readU32(view, offset) {
@@ -259,37 +299,39 @@
 
   async function fetchAvatarBytes(userId, size = 96) {
     if (!client || !userId) return null;
-    const mxc = getAvatarMxc(userId);
-    if (!mxc) {
-      try {
-        const profile = await client.getProfileInfo(userId);
-        if (profile?.avatar_url) {
-          const remote = mxcToRemote(profile.avatar_url, size, size, 'crop') || mxcToRemote(profile.avatar_url);
-          return fetchRemoteMedia(remote);
-        }
-      } catch { /* ignore */ }
-      return null;
-    }
-    const remote = mxcToRemote(mxc, size, size, 'crop') || mxcToRemote(mxc);
+    const mxc = await resolveAvatarMxc(userId);
+    if (!mxc) return null;
+    const remote =
+      (size ? mxcToRemote(mxc, size, size, 'crop') : null) ||
+      mxcToFullRemote(mxc);
     return fetchRemoteMedia(remote);
   }
 
-  async function fetchAvatarPaarrotColors(userId) {
+  async function fetchAvatarPaarrotColors(userId, avatarMxcHint = null) {
     if (!client || !userId) return null;
-    const avatarKey = getAvatarMxc(userId) || '';
+    const avatarKey = (await resolveAvatarMxc(userId, avatarMxcHint)) || '';
     const cached = avatarMetaCache.get(userId);
     if (cached && cached.key === avatarKey && Date.now() - cached.ts < 5 * 60 * 1000) {
       return cached.meta;
     }
     let buffer = null;
-    try {
-      const full = mxcToRemote(avatarKey || getAvatarMxc(userId));
-      const media = full ? await fetchRemoteMedia(full) : null;
-      buffer = media?.buffer || null;
-    } catch { buffer = null; }
-    if (!buffer) {
-      const thumb = await fetchAvatarBytes(userId, 256);
-      buffer = thumb?.buffer || null;
+    if (avatarKey) {
+      // Must use the original upload — Synapse thumbnails drop tEXt chunks.
+      const candidates = [
+        mxcToFullRemote(avatarKey),
+        (() => {
+          try { return client.mxcUrlToHttp(avatarKey); } catch { return null; }
+        })(),
+      ].filter(Boolean);
+      for (const remote of candidates) {
+        try {
+          const media = await fetchRemoteMedia(remote);
+          if (media?.buffer) {
+            buffer = media.buffer;
+            break;
+          }
+        } catch { /* try next */ }
+      }
     }
     const meta = buffer ? extractMetadataFromImage(buffer) : {};
     const has = Boolean(meta.color || meta.avatarBorderColor || meta.gradient || meta.banner);
@@ -334,11 +376,13 @@
     if (!avatarMxc) avatarMxc = client.getUser?.(id)?.avatarUrl || null;
     let bannerUrl = null;
     if (typeof bannerMxc === 'string' && bannerMxc.startsWith('mxc://')) {
-      bannerUrl = mxcToHttpFull(bannerMxc);
+      bannerUrl =
+        mediaProxy(mxcToRemote(bannerMxc, 1280, 480, 'scale')) ||
+        mxcToHttpFull(bannerMxc);
     }
     const profileStyle = cacheProfileStyle(id, parseProfileStyle(profileRaw));
     let paarrotColors = null;
-    try { paarrotColors = await fetchAvatarPaarrotColors(id); } catch { paarrotColors = null; }
+    try { paarrotColors = await fetchAvatarPaarrotColors(id, avatarMxc); } catch { paarrotColors = null; }
     if (!bannerUrl && paarrotColors?.banner?.startsWith?.('mxc://')) {
       bannerUrl = mxcToHttpFull(paarrotColors.banner);
     } else if (!bannerUrl && typeof paarrotColors?.banner === 'string' && /^https?:/i.test(paarrotColors.banner)) {
@@ -1316,6 +1360,10 @@
   window.EventSource.OPEN = 1;
   window.EventSource.CLOSED = 2;
 
+  function isProxyMediaSrc(src) {
+    return typeof src === 'string' && /^\/api\/(?:profile-avatar|media)(?:\?|$)/.test(src);
+  }
+
   async function hydrateMediaNode(node) {
     if (!node) return;
     const imgs = [];
@@ -1325,10 +1373,10 @@
     }
     for (const img of imgs) {
       const src = img.getAttribute('src');
-      if (!src || img.dataset.kitsuHydrated === src) continue;
-      img.dataset.kitsuHydrated = src;
+      if (!isProxyMediaSrc(src) || img.dataset.kitsuHydrated === src) continue;
       try {
         if (blobUrlCache.has(src)) {
+          img.dataset.kitsuHydrated = src;
           img.src = blobUrlCache.get(src);
           continue;
         }
@@ -1337,9 +1385,10 @@
         const blob = await res.blob();
         const objectUrl = URL.createObjectURL(blob);
         blobUrlCache.set(src, objectUrl);
+        img.dataset.kitsuHydrated = src;
         img.src = objectUrl;
       } catch {
-        /* ignore */
+        /* retry on next hydrator pass */
       }
     }
 
@@ -1352,7 +1401,6 @@
       if (!match) continue;
       const src = match[1];
       if (el.dataset.kitsuBgHydrated === src) continue;
-      el.dataset.kitsuBgHydrated = src;
       try {
         let objectUrl = blobUrlCache.get(src);
         if (!objectUrl) {
@@ -1361,9 +1409,10 @@
           objectUrl = URL.createObjectURL(await res.blob());
           blobUrlCache.set(src, objectUrl);
         }
+        el.dataset.kitsuBgHydrated = src;
         el.style.backgroundImage = `url("${objectUrl}")`;
       } catch {
-        /* ignore */
+        /* retry on next hydrator pass */
       }
     }
   }

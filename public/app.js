@@ -4220,6 +4220,12 @@
       }
 
       applyProfileStyleToCard(profile.style || null);
+      // Capacitor: <img src="/api/..."> bypasses fetch — rewrite to blob URLs
+      try {
+        window.KitsuStandalone?.hydrateMedia?.();
+      } catch {
+        /* ignore */
+      }
 
       userProfileCard.hidden = false;
       const rect = userProfileCard.getBoundingClientRect();
