@@ -116,6 +116,7 @@
       </main>
 
       <main id="chatView" class="chat-view" hidden>
+        <button type="button" id="mobileNavOverlay" class="mobile-nav-overlay" hidden aria-label="Close navigation"></button>
         <nav class="workspace-rail" id="workspaceRail" aria-label="Spaces">
           <div class="workspace-rail-stack workspace-rail-stack--dm" aria-label="Direct messages">
             <button
@@ -1175,6 +1176,19 @@
           <section class="timeline-pane">
             <header class="timeline-head">
               <div class="timeline-head-main">
+                <button
+                  type="button"
+                  id="mobileRoomsBtn"
+                  class="mobile-rooms-btn timeline-icon-btn"
+                  title="Rooms"
+                  aria-label="Open rooms"
+                  aria-controls="chatMain"
+                  aria-expanded="false"
+                >
+                  <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 7h16M4 12h16M4 17h16"/>
+                  </svg>
+                </button>
                 <div class="timeline-room-identity">
                   <img id="activeRoomAvatar" class="timeline-room-avatar" alt="" hidden />
                   <span id="activeRoomAvatarFallback" class="timeline-room-avatar-fallback" hidden aria-hidden="true"></span>

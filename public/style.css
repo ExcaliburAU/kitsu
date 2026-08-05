@@ -9027,10 +9027,19 @@ html.monochrome .theme-colour-swatch-face {
   background: color-mix(in srgb, var(--text) 10%, transparent);
 }
 
+/* Phone / narrow: slide-out drawers (Discord-style) */
 @media (max-width: 720px) {
+  :root {
+    --mobile-nav-width: min(92vw, 360px);
+    --mobile-drawer-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
   .chat-view {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
+    display: block;
+    position: relative;
+    overflow: hidden;
+    width: 100%;
+    min-height: 0;
   }
 
   .settings-layout {
@@ -9049,58 +9058,120 @@ html.monochrome .theme-colour-swatch-face {
   }
 
   .chat-main {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(160px, 32vh) 1fr;
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .mobile-rooms-btn {
+    display: inline-flex !important;
+    flex: 0 0 auto;
+  }
+
+  .timeline-head-main {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+  }
+
+  .mobile-nav-overlay {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 44;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgba(0, 0, 0, 0.48);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .chat-view.is-rooms-open .mobile-nav-overlay,
+  .chat-view.is-right-drawer-open .mobile-nav-overlay {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .workspace-rail,
+  .room-rail {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 45;
+    height: 100%;
+    max-height: 100dvh;
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    transform: translate3d(calc(-1 * var(--mobile-nav-width)), 0, 0);
+    transition: transform 0.28s var(--mobile-drawer-ease);
+    will-change: transform;
   }
 
   .workspace-rail {
-    width: auto;
-    flex-direction: row;
+    left: 0;
+    width: var(--rail-width);
+    flex-direction: column;
     justify-content: flex-start;
-    overflow-x: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    padding: 8px 10px;
-    gap: 8px;
+    overflow: hidden;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    background: var(--bg);
+    box-shadow: none;
   }
 
-  .workspace-rail-spaces {
-    flex-direction: row;
-    overflow: visible;
+  .room-rail {
+    left: var(--rail-width);
+    width: calc(var(--mobile-nav-width) - var(--rail-width));
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    background: var(--surface);
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+    box-shadow: 12px 0 32px rgba(0, 0, 0, 0.28);
+  }
+
+  .chat-view.is-rooms-open .workspace-rail,
+  .chat-view.is-rooms-open .room-rail {
+    transform: translate3d(0, 0, 0);
+  }
+
+  .workspace-rail-spaces,
+  .workspace-rail-main,
+  .workspace-rail-footer,
+  .workspace-rail-stack {
+    flex-direction: column;
     width: auto;
-    flex: 0 0 auto;
   }
 
   .workspace-rail-main {
-    flex-direction: row;
-    flex: 0 0 auto;
-    overflow: visible;
-    width: auto;
+    flex: 1 1 auto;
+    overflow: hidden;
+  }
+
+  .workspace-rail-spaces {
+    overflow-y: auto;
+    overflow-x: hidden;
+    flex: 1 1 auto;
+    width: 100%;
   }
 
   .workspace-rail-footer {
-    flex-direction: row;
-    margin-top: 0;
-    padding-top: 0;
-  }
-
-  .workspace-rail-stack {
-    flex-direction: row;
-    width: auto;
+    margin-top: auto;
   }
 
   .workspace-rail-divider,
   .workspace-rail-spacer {
-    display: none;
+    display: block;
   }
 
-  .workspace-rail-btn::before {
-    display: none;
-  }
-
-  .room-rail {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+  .chat-stage {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
   }
 
   .chat-stage.has-members,
@@ -9108,13 +9179,54 @@ html.monochrome .theme-colour-swatch-face {
     grid-template-columns: 1fr;
   }
 
+  .timeline-pane {
+    min-height: 0;
+    height: 100%;
+  }
+
   .room-members-panel,
   .shared-media-panel {
-    position: absolute;
-    inset: 0;
-    z-index: 20;
-    border-left: 0;
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: min(92vw, 360px);
+    z-index: 46;
+    border-left: 1px solid var(--line);
+    background: var(--surface);
+    transform: translate3d(100%, 0, 0);
+    transition: transform 0.28s var(--mobile-drawer-ease);
+    padding-top: env(safe-area-inset-top, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.28);
+    pointer-events: none;
   }
+
+  .room-members-panel.is-mobile-open,
+  .shared-media-panel.is-mobile-open {
+    transform: translate3d(0, 0, 0);
+    pointer-events: auto;
+  }
+
+  /* Login: use more of the phone viewport */
+  .login-view {
+    padding: 1.25rem 1rem;
+    align-items: stretch;
+  }
+
+  .login-panel {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+.mobile-rooms-btn {
+  display: none;
+}
+
+.mobile-nav-overlay[hidden] {
+  display: none !important;
 }
 
 .composer-autocomplete {

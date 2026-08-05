@@ -456,7 +456,7 @@
       return jsonResponse({
         ok: true,
         name: 'kitsu',
-        version: '0.3.3-android',
+        version: '0.3.4-android',
         standalone: true,
         mode: 'browser-matrix',
       });

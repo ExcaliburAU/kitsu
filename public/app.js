@@ -1,6 +1,8 @@
 (() => {
   const loginView = document.getElementById('loginView');
   const chatView = document.getElementById('chatView');
+  const mobileRoomsBtn = document.getElementById('mobileRoomsBtn');
+  const mobileNavOverlay = document.getElementById('mobileNavOverlay');
   const loginForm = document.getElementById('loginForm');
   const loginError = document.getElementById('loginError');
   const loginBtn = document.getElementById('loginBtn');
@@ -549,6 +551,13 @@
   }
   let roomMembersCache = [];
   let membersPanelOpen = localStorage.getItem('relay.membersDrawer') === '1';
+  let roomsDrawerOpen = false;
+  let mobileDrawerMq = null;
+  try {
+    mobileDrawerMq = window.matchMedia('(max-width: 720px)');
+  } catch {
+    mobileDrawerMq = null;
+  }
   let sharedMediaOpen = false;
   let sharedMediaItems = [];
   let sharedMediaSenderFilter = new Set();
@@ -5712,6 +5721,16 @@
     updateCallChrome();
     void ensureNotificationPermission();
     void refreshSecurityBadge();
+    if (isMobileUi()) {
+      membersPanelOpen = false;
+      sharedMediaOpen = false;
+      localStorage.setItem('relay.membersDrawer', '0');
+      updateChatStageDrawers();
+      if (!activeRoomId) setRoomsDrawerOpen(true);
+      else syncMobileNavOverlay();
+    } else {
+      syncMobileNavOverlay();
+    }
   }
 
   function roomLabel(roomId) {
@@ -5736,6 +5755,7 @@
     if (roomSearchBtn) roomSearchBtn.hidden = true;
     setRoomSearchOpen(false);
     hideRoomPinsPanel();
+    if (isMobileUi()) setRoomsDrawerOpen(true);
     hideRoomThreadsPanel();
     setSharedMediaOpen(false);
     hideRoomMenu();
@@ -5785,15 +5805,84 @@
     }
   }
 
+  function isMobileUi() {
+    try {
+      if (mobileDrawerMq) return mobileDrawerMq.matches;
+      return window.matchMedia('(max-width: 720px)').matches;
+    } catch {
+      return false;
+    }
+  }
+
+  function syncMobileNavOverlay() {
+    if (!chatView || !mobileNavOverlay) return;
+    const rightOpen =
+      isMobileUi() &&
+      Boolean(activeRoomId) &&
+      (membersPanelOpen || sharedMediaOpen);
+    const show = (isMobileUi() && roomsDrawerOpen) || rightOpen;
+    mobileNavOverlay.hidden = !show;
+    chatView.classList.toggle('is-rooms-open', isMobileUi() && roomsDrawerOpen);
+    chatView.classList.toggle('is-right-drawer-open', rightOpen);
+    if (mobileRoomsBtn) {
+      mobileRoomsBtn.classList.toggle('is-active', isMobileUi() && roomsDrawerOpen);
+      mobileRoomsBtn.setAttribute('aria-expanded', roomsDrawerOpen && isMobileUi() ? 'true' : 'false');
+      mobileRoomsBtn.title = roomsDrawerOpen ? 'Close rooms' : 'Rooms';
+      mobileRoomsBtn.setAttribute('aria-label', roomsDrawerOpen ? 'Close rooms' : 'Open rooms');
+    }
+  }
+
+  function setRoomsDrawerOpen(open) {
+    roomsDrawerOpen = Boolean(open);
+    if (roomsDrawerOpen && isMobileUi()) {
+      // Exclusive with right drawers on phone
+      if (membersPanelOpen || sharedMediaOpen) {
+        membersPanelOpen = false;
+        sharedMediaOpen = false;
+        localStorage.setItem('relay.membersDrawer', '0');
+        updateChatStageDrawers();
+        return;
+      }
+    }
+    syncMobileNavOverlay();
+  }
+
   function updateChatStageDrawers() {
     const showMembers = membersPanelOpen && Boolean(activeRoomId);
     const showMedia = sharedMediaOpen && Boolean(activeRoomId);
+    const mobile = isMobileUi();
     if (chatStage) {
-      chatStage.classList.toggle('has-members', showMembers);
-      chatStage.classList.toggle('has-media', showMedia);
+      chatStage.classList.toggle('has-members', showMembers && !mobile);
+      chatStage.classList.toggle('has-media', showMedia && !mobile);
     }
-    if (roomMembersPanel) roomMembersPanel.hidden = !showMembers;
-    if (sharedMediaPanel) sharedMediaPanel.hidden = !showMedia;
+    if (roomMembersPanel) {
+      if (mobile) {
+        roomMembersPanel.hidden = false;
+        roomMembersPanel.classList.toggle('is-mobile-open', showMembers);
+        roomMembersPanel.setAttribute('aria-hidden', showMembers ? 'false' : 'true');
+        if (!showMembers) roomMembersPanel.setAttribute('inert', '');
+        else roomMembersPanel.removeAttribute('inert');
+      } else {
+        roomMembersPanel.hidden = !showMembers;
+        roomMembersPanel.classList.remove('is-mobile-open');
+        roomMembersPanel.removeAttribute('aria-hidden');
+        roomMembersPanel.removeAttribute('inert');
+      }
+    }
+    if (sharedMediaPanel) {
+      if (mobile) {
+        sharedMediaPanel.hidden = false;
+        sharedMediaPanel.classList.toggle('is-mobile-open', showMedia);
+        sharedMediaPanel.setAttribute('aria-hidden', showMedia ? 'false' : 'true');
+        if (!showMedia) sharedMediaPanel.setAttribute('inert', '');
+        else sharedMediaPanel.removeAttribute('inert');
+      } else {
+        sharedMediaPanel.hidden = !showMedia;
+        sharedMediaPanel.classList.remove('is-mobile-open');
+        sharedMediaPanel.removeAttribute('aria-hidden');
+        sharedMediaPanel.removeAttribute('inert');
+      }
+    }
     if (roomMembersBtn) {
       roomMembersBtn.classList.toggle('is-active', showMembers);
       roomMembersBtn.setAttribute('aria-pressed', showMembers ? 'true' : 'false');
@@ -5804,12 +5893,17 @@
       roomMediaBtn.setAttribute('aria-pressed', showMedia ? 'true' : 'false');
       roomMediaBtn.title = showMedia ? 'Hide Shared Media' : 'Shared Media';
     }
+    if (showMembers || showMedia) roomsDrawerOpen = false;
+    syncMobileNavOverlay();
   }
 
   function setMembersPanelOpen(open) {
     membersPanelOpen = Boolean(open);
     localStorage.setItem('relay.membersDrawer', membersPanelOpen ? '1' : '0');
-    if (membersPanelOpen) sharedMediaOpen = false;
+    if (membersPanelOpen) {
+      sharedMediaOpen = false;
+      if (isMobileUi()) roomsDrawerOpen = false;
+    }
     updateChatStageDrawers();
     if (membersPanelOpen && activeRoomId) {
       void refreshRoomMembers(activeRoomId);
@@ -5825,6 +5919,7 @@
     if (sharedMediaOpen) {
       membersPanelOpen = false;
       localStorage.setItem('relay.membersDrawer', '0');
+      if (isMobileUi()) roomsDrawerOpen = false;
     }
     updateChatStageDrawers();
     if (sharedMediaOpen && activeRoomId) {
@@ -8916,6 +9011,7 @@
     }
     if (pinBottom) stickMessagesToBottom = true;
     updateCallChrome();
+    if (isMobileUi()) setRoomsDrawerOpen(false);
     setMembersPanelOpen(membersPanelOpen);
     if (sharedMediaOpen) void refreshSharedMedia(room.roomId);
     void refreshMessages(room.roomId, {
@@ -13782,6 +13878,115 @@
     setMembersPanelOpen(!membersPanelOpen);
   });
   roomMembersClose?.addEventListener('click', () => setMembersPanelOpen(false));
+
+  mobileRoomsBtn?.addEventListener('click', () => {
+    if (!isMobileUi()) return;
+    setRoomsDrawerOpen(!roomsDrawerOpen);
+  });
+  mobileNavOverlay?.addEventListener('click', () => {
+    if (!isMobileUi()) return;
+    setRoomsDrawerOpen(false);
+    if (membersPanelOpen) setMembersPanelOpen(false);
+    if (sharedMediaOpen) setSharedMediaOpen(false);
+  });
+
+  // Edge swipe: open/close left rooms drawer; swipe from right for members.
+  (function setupMobileDrawerGestures() {
+    let startX = 0;
+    let startY = 0;
+    let tracking = false;
+    let mode = null; // 'open-left' | 'close-left' | 'open-right' | 'close-right'
+
+    function onStart(event) {
+      if (!isMobileUi() || !chatView || chatView.hidden) return;
+      const touch = event.changedTouches?.[0];
+      if (!touch) return;
+      const w = window.innerWidth || 0;
+      startX = touch.clientX;
+      startY = touch.clientY;
+      tracking = false;
+      mode = null;
+      if (roomsDrawerOpen) {
+        mode = 'close-left';
+        tracking = true;
+      } else if (membersPanelOpen || sharedMediaOpen) {
+        mode = 'close-right';
+        tracking = true;
+      } else if (startX <= 28) {
+        mode = 'open-left';
+        tracking = true;
+      } else if (activeRoomId && startX >= w - 28) {
+        mode = 'open-right';
+        tracking = true;
+      }
+    }
+
+    function onEnd(event) {
+      if (!tracking || !mode) return;
+      const touch = event.changedTouches?.[0];
+      tracking = false;
+      if (!touch) return;
+      const dx = touch.clientX - startX;
+      const dy = touch.clientY - startY;
+      if (Math.abs(dy) > Math.abs(dx) || Math.abs(dx) < 56) {
+        mode = null;
+        return;
+      }
+      if (mode === 'open-left' && dx > 56) setRoomsDrawerOpen(true);
+      else if (mode === 'close-left' && dx < -56) setRoomsDrawerOpen(false);
+      else if (mode === 'open-right' && dx < -56) setMembersPanelOpen(true);
+      else if (mode === 'close-right' && dx > 56) {
+        setMembersPanelOpen(false);
+        setSharedMediaOpen(false);
+      }
+      mode = null;
+    }
+
+    document.addEventListener('touchstart', onStart, { passive: true });
+    document.addEventListener('touchend', onEnd, { passive: true });
+  })();
+
+  function onMobileDrawerMqChange() {
+    if (!isMobileUi()) {
+      roomsDrawerOpen = false;
+      if (roomMembersPanel) {
+        roomMembersPanel.classList.remove('is-mobile-open');
+        roomMembersPanel.removeAttribute('inert');
+      }
+      if (sharedMediaPanel) {
+        sharedMediaPanel.classList.remove('is-mobile-open');
+        sharedMediaPanel.removeAttribute('inert');
+      }
+    } else if (!activeRoomId) {
+      roomsDrawerOpen = true;
+    }
+    updateChatStageDrawers();
+  }
+  if (mobileDrawerMq) {
+    if (typeof mobileDrawerMq.addEventListener === 'function') {
+      mobileDrawerMq.addEventListener('change', onMobileDrawerMqChange);
+    } else if (typeof mobileDrawerMq.addListener === 'function') {
+      mobileDrawerMq.addListener(onMobileDrawerMqChange);
+    }
+  }
+
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !isMobileUi()) return;
+    if (roomsDrawerOpen) {
+      setRoomsDrawerOpen(false);
+      event.preventDefault();
+      return;
+    }
+    if (membersPanelOpen) {
+      setMembersPanelOpen(false);
+      event.preventDefault();
+      return;
+    }
+    if (sharedMediaOpen) {
+      setSharedMediaOpen(false);
+      event.preventDefault();
+    }
+  });
   roomMembersFilter?.addEventListener('input', () => {
     renderRoomMembers(roomMembersFilter.value);
   });
