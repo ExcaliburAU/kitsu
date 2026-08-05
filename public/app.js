@@ -5870,6 +5870,8 @@
       mobileRoomsBtn.title = roomsDrawerOpen ? 'Close rooms' : 'Rooms';
       mobileRoomsBtn.setAttribute('aria-label', roomsDrawerOpen ? 'Close rooms' : 'Open rooms');
     }
+    // Keep Jump to latest from flashing under the drawer / dim overlay
+    updateJumpToLatestBtn();
   }
 
   function setRoomsDrawerOpen(open) {
@@ -10673,11 +10675,14 @@
 
   function updateJumpToLatestBtn() {
     if (!jumpToLatestBtn || !messageList) return;
+    const drawerOpen =
+      isMobileUi() && (roomsDrawerOpen || membersPanelOpen || sharedMediaOpen);
     const show =
       Boolean(activeRoomId) &&
       !composerForm?.hidden &&
       !stickMessagesToBottom &&
-      !isMessageListNearBottom(160);
+      !isMessageListNearBottom(160) &&
+      !drawerOpen;
     jumpToLatestBtn.hidden = !show;
   }
 

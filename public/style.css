@@ -4447,7 +4447,8 @@ html.monochrome {
   letter-spacing: 0.01em;
   white-space: nowrap;
   cursor: pointer;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+  /* Soft drop shadow reads as a second “pill” under the chip — skip it */
+  box-shadow: none;
 }
 
 .jump-to-latest[hidden] {
@@ -9196,10 +9197,20 @@ html.monochrome .theme-colour-swatch-face {
     transform: translate3d(0, 0, 0);
   }
 
-  /* Floating pill sits on the chat; hide it while the rooms drawer is open */
+  /* Floating chip sits on the chat; never show under drawers / dim overlay */
   .chat-view.is-rooms-open .jump-to-latest,
-  .chat-view.is-right-drawer-open .jump-to-latest {
+  .chat-view.is-right-drawer-open .jump-to-latest,
+  .android-capacitor .chat-view.is-rooms-open .jump-to-latest,
+  .android-capacitor .chat-view.is-right-drawer-open .jump-to-latest {
     display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    box-shadow: none !important;
+  }
+
+  .android-capacitor .jump-to-latest {
+    box-shadow: none !important;
   }
 
   .workspace-rail-spaces,

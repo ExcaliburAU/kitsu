@@ -67,5 +67,15 @@ if (
   process.exit(1);
 }
 
+// Bust WebView asset cache so CSS/JS updates ship with each APK.
+let assetVer = '0';
+try {
+  assetVer = String(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version || '0');
+} catch (_) {}
+html = html
+  .replace(/href="\/style\.css"/g, `href="/style.css?v=${assetVer}"`)
+  .replace(/href="\/themes\.css"/g, `href="/themes.css?v=${assetVer}"`)
+  .replace(/src="\/app\.js"/g, `src="/app.js?v=${assetVer}"`);
+
 fs.writeFileSync(indexPath, html);
-console.log('www synced from public/ (standalone, %d bytes index)', html.length);
+console.log('www synced from public/ (standalone, %d bytes index, v=%s)', html.length, assetVer);
