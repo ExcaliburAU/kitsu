@@ -4,7 +4,7 @@ const fssync = require('fs');
 const { EventEmitter } = require('events');
 
 /**
- * Lean PluginHost for Conduit.
+ * Lean PluginHost for Kitsu.
  * Loads CJS plugins from pluginsDir with onLoad/onUnload + settings + events.
  */
 class PluginHost {

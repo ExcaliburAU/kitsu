@@ -7,3 +7,17 @@ dist/
 userData/
 sessions/
 *.local.json
+
+# Mobile / Capacitor
+mobile/node_modules/
+mobile/www/
+mobile/android/.gradle/
+mobile/android/app/build/
+mobile/android/build/
+mobile/android/capacitor-cordova-android-plugins/build/
+mobile/android/local.properties
+mobile/android/*.iml
+mobile/android/.idea/
+
+# Stream Deck build output
+streamdeck-plugin/dist/

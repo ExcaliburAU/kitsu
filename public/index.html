@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Conduit</title>
+    <title>Kitsu</title>
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
@@ -72,7 +72,7 @@
         <section class="login-panel">
           <div class="login-brand">
             <img class="brand-mark brand-mark--logo" src="/icon.png?v=2" alt="" width="40" height="40" />
-            <h1>Conduit</h1>
+            <h1>Kitsu</h1>
           </div>
           <p class="lede" data-i18n="login.lede">Lean Matrix client. Log into your Synapse (or any homeserver).</p>
           <form id="loginForm">
@@ -1246,7 +1246,16 @@
               </div>
             </header>
             <audio id="remoteCallAudio" autoplay></audio>
-            <div id="messageList" class="message-list"></div>
+            <div class="message-scroll-wrap">
+              <div id="messageList" class="message-list"></div>
+              <button type="button" id="jumpToLatestBtn" class="jump-to-latest" hidden>
+                <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v12"/>
+                  <path d="m7 12 5 5 5-5"/>
+                </svg>
+                <span>Jump to Latest</span>
+              </button>
+            </div>
             <div id="typingIndicator" class="typing-indicator" hidden aria-live="polite"></div>
             <form id="composerForm" class="composer" hidden>
               <div id="composerDropHint" class="composer-drop-hint" hidden>Drop images to upload</div>
@@ -1571,7 +1580,7 @@
                     <input id="prefUrlPreview" type="checkbox" checked />
                     URL preview
                   </label>
-                  <p class="settings-muted">Show link cards and embed YouTube players under messages.</p>
+                  <p class="settings-muted">Show link cards and embed YouTube / TikTok players under messages.</p>
                   <label class="settings-check">
                     <input id="prefUrlPreviewEncrypted" type="checkbox" checked />
                     URL preview in encrypted rooms
@@ -2126,7 +2135,7 @@
                   <img class="about-hero-icon" src="/icon.png?v=2" alt="" width="72" height="72" />
                   <div class="about-hero-copy">
                     <p class="about-hero-title">
-                      <span>Conduit</span>
+                      <span>Kitsu</span>
                       <span id="settingsVersion" class="about-hero-version">v0.1.0</span>
                     </p>
                     <p class="about-hero-tagline">Lean Matrix desktop client</p>
@@ -2149,7 +2158,17 @@
                     </div>
                     <div class="devtools-row">
                       <div>
-                        <p class="settings-row-title">Protocol Handler (conduit://)</p>
+                        <p class="settings-row-title">Mobile companion (Android)</p>
+                        <p id="mobileCompanionStatus" class="settings-muted">
+                          Same Wi‑Fi — open Kitsu on your phone and enter one of these addresses.
+                        </p>
+                        <p id="mobileCompanionUrls" class="settings-muted" style="margin-top:0.35rem;user-select:text"></p>
+                      </div>
+                      <button type="button" id="mobileCompanionRefreshBtn" class="ghost">Refresh</button>
+                    </div>
+                    <div class="devtools-row">
+                      <div>
+                        <p class="settings-row-title">Protocol Handler (kitsu://)</p>
                         <p id="protocolHandlerStatus" class="settings-muted">Checking protocol registration…</p>
                       </div>
                       <div class="about-protocol-actions">

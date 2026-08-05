@@ -28,6 +28,23 @@ let startupPromise = null;
 const app = express();
 app.use(express.json({ limit: '16mb' }));
 
+// Phone companion (Capacitor) probes /api/health cross-origin before navigating in.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS');
+  }
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+  next();
+});
+
 const pluginHost = new PluginHost({ pluginsDir: runtime.pluginsDir });
 const themeHost = new ThemeHost();
 const voipConfig = new VoipConfig({ dataDir: runtime.dataDir });
@@ -36,12 +53,17 @@ const sidebarStore = new SidebarStore({ dataDir: runtime.dataDir });
 const voipHub = new VoipHub();
 const { LiveHub } = require('./src/live/LiveHub');
 const liveHub = new LiveHub();
+const { AppControl } = require('./src/paarrot/AppControl');
+const { LocalApi } = require('./src/paarrot/LocalApi');
+const { LOCAL_API_HOST, LOCAL_API_PORT } = require('./src/paarrot/constants');
+const appControl = new AppControl({ liveHub });
 const matrix = new MatrixSession({
   dataDir: runtime.dataDir,
   pluginHost,
   voipHub,
   liveHub,
 });
+const localApi = new LocalApi({ matrix, appControl });
 
 function configureRuntime(options = {}) {
   if (options.host) runtime.host = options.host;
@@ -72,7 +94,50 @@ function getRuntimeState() {
 }
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, name: 'conduit', version: require('./package.json').version });
+  const os = require('os');
+  const lanAddresses = [];
+  for (const list of Object.values(os.networkInterfaces() || {})) {
+    for (const entry of list || []) {
+      if (!entry || entry.internal || entry.family !== 'IPv4') continue;
+      lanAddresses.push(`http://${entry.address}:${runtime.port}`);
+    }
+  }
+  res.json({
+    ok: true,
+    name: 'kitsu',
+    version: require('./package.json').version,
+    host: runtime.host,
+    port: runtime.port,
+    lanAddresses,
+    paarrotApi: { host: LOCAL_API_HOST, port: LOCAL_API_PORT },
+  });
+});
+
+app.put('/api/control/room', (req, res) => {
+  try {
+    const roomId = req.body?.roomId ? String(req.body.roomId) : null;
+    res.json({ ok: true, currentRoom: appControl.setCurrentRoom(roomId) });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.put('/api/control/call', (req, res) => {
+  try {
+    const state = appControl.syncCallState({
+      muted: req.body?.muted,
+      deafened: req.body?.deafened,
+      inCall: req.body?.inCall,
+      roomId: req.body?.roomId,
+    });
+    res.json({ ok: true, ...state });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.get('/api/control/status', (_req, res) => {
+  res.json({ ok: true, ...appControl.getStatus(matrix) });
 });
 
 app.get('/api/sidebar', (_req, res) => {
@@ -915,13 +980,22 @@ app.get('/api/rooms/:roomId/messages', async (req, res) => {
   const limit = Number(req.query.limit || 50);
   const history = String(req.query.history || '') === '1' || String(req.query.history || '') === 'true';
   const minEvents = Number(req.query.minEvents || Math.max(limit, 120));
+  const minMessages = Number(req.query.minMessages || Math.max(limit, 80));
   try {
     let historyMeta = null;
+    // Always hydrate thin timelines on open — initial /sync only keeps a small window,
+    // so messages from other clients while offline would otherwise be missing.
     if (history) {
       historyMeta = await matrix.ensureRoomHistory(req.params.roomId, {
         minEvents,
+        minMessages,
         batchSize: 60,
-        maxBatches: 20,
+        maxBatches: 25,
+      });
+    } else {
+      historyMeta = await matrix.hydrateRoomTimeline(req.params.roomId, {
+        minMessages: Math.min(100, Math.max(40, Number(limit) || 50)),
+        maxBatches: 15,
       });
     }
     const atStart = await matrix.isRoomTimelineAtStart(req.params.roomId);
@@ -1314,12 +1388,74 @@ app.get('/api/link-preview', async (req, res) => {
       res.status(400).json({ error: 'url is required' });
       return;
     }
+    const roomId = String(req.query.roomId || '').trim() || null;
+    if (roomId && matrix.shouldDisableEmbed(roomId, url)) {
+      res.json({ ok: true, preview: null, disabled: true });
+      return;
+    }
     const preview = await fetchLinkPreview(url);
     res.setHeader('Cache-Control', 'private, max-age=300');
     res.json({ ok: true, preview });
   } catch (error) {
     const message = error?.name === 'AbortError' ? 'Preview timed out' : error?.message || String(error);
     res.status(400).json({ error: message });
+  }
+});
+
+app.get('/api/rooms/:roomId/embed-filters', (req, res) => {
+  try {
+    res.json({ ok: true, ...matrix.getEmbedFilters(req.params.roomId) });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.put('/api/rooms/:roomId/embed-filters/personal', async (req, res) => {
+  try {
+    const content = await matrix.setPersonalEmbedFilters(
+      req.params.roomId,
+      req.body?.disabledPatterns,
+    );
+    res.json({ ok: true, personal: content });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.put('/api/rooms/:roomId/embed-filters/room', async (req, res) => {
+  try {
+    const content = await matrix.setRoomWideEmbedFilters(
+      req.params.roomId,
+      req.body?.disabledPatterns,
+    );
+    res.json({ ok: true, roomWide: content });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.get('/api/account/fav-emojis', (_req, res) => {
+  try {
+    res.json({ ok: true, usage: matrix.getFavEmojis() });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.put('/api/account/fav-emojis', async (req, res) => {
+  try {
+    const usage = await matrix.setFavEmojis(req.body?.usage || req.body);
+    res.json({ ok: true, usage });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
+  }
+});
+
+app.get('/api/rooms/:roomId/emotes', (req, res) => {
+  try {
+    res.json({ ok: true, ...matrix.getRoomEmotes(req.params.roomId) });
+  } catch (error) {
+    res.status(400).json({ error: error?.message || String(error) });
   }
 });
 
@@ -1569,7 +1705,7 @@ async function startServer(options = {}) {
     await pluginHost.init();
     matrix.primeBootSession();
 
-    return new Promise((resolve, reject) => {
+    const result = await new Promise((resolve, reject) => {
       const tryListen = (port, allowFallback) => {
         const server = app.listen(port, runtime.host, () => {
           activeServer = server;
@@ -1579,7 +1715,7 @@ async function startServer(options = {}) {
           }
           startupPromise = null;
           console.log(
-            `Conduit listening on http://${runtime.host}:${runtime.port} (listen ${Date.now() - bootStarted}ms)`,
+            `Kitsu listening on http://${runtime.host}:${runtime.port} (listen ${Date.now() - bootStarted}ms)`,
           );
 
           // Session restore (crypto + sync) continues in background so Electron can open immediately.
@@ -1626,6 +1762,19 @@ async function startServer(options = {}) {
 
       tryListen(runtime.port, runtime.port !== 0);
     });
+
+    try {
+      await localApi.start({ host: LOCAL_API_HOST, port: LOCAL_API_PORT });
+    } catch (error) {
+      if (error?.code === 'EADDRINUSE') {
+        console.warn(
+          `[relay] Paarrot local API port ${LOCAL_API_PORT} busy — Stream Deck API disabled`,
+        );
+      } else {
+        console.warn('[relay] Paarrot local API failed to start:', error?.message || error);
+      }
+    }
+    return result;
   })().catch((error) => {
     startupPromise = null;
     throw error;
@@ -1635,6 +1784,8 @@ async function startServer(options = {}) {
 }
 
 async function stopServer() {
+  await localApi.stop().catch(() => {});
+
   if (matrix.client) {
     try {
       matrix.client.stopClient();
@@ -1668,7 +1819,7 @@ module.exports = {
 
 if (require.main === module) {
   startServer().catch((error) => {
-    console.error('Failed to start Conduit:', error);
+    console.error('Failed to start Kitsu:', error);
     process.exit(1);
   });
 }

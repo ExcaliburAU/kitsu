@@ -1,6 +1,6 @@
 /**
- * Conduit 1:1 WebRTC calls with Matrix signaling via the local API.
- * ICE/TURN comes from /api/voip/ice (homeserver + Conduit TURN config).
+ * Kitsu 1:1 WebRTC calls with Matrix signaling via the local API.
+ * ICE/TURN comes from /api/voip/ice (homeserver + Kitsu TURN config).
  */
 (() => {
   const CALL_TIMEOUT_MS = 60_000;
@@ -525,6 +525,19 @@
 
     toggleMute() {
       this.isMuted = !this.isMuted;
+      this.applyMuteTracks();
+      this.emit('state');
+      return this.isMuted;
+    }
+
+    setMute(muted) {
+      this.isMuted = Boolean(muted);
+      this.applyMuteTracks();
+      this.emit('state');
+      return this.isMuted;
+    }
+
+    applyMuteTracks() {
       for (const track of this.localStream?.getAudioTracks?.() || []) {
         track.enabled = !this.isMuted;
       }
@@ -532,12 +545,17 @@
         this.speakingIds.delete(this.myUserId);
         this.emit('speaking', { speakers: [...this.speakingIds] });
       }
-      this.emit('state');
-      return this.isMuted;
     }
 
     toggleDeafen() {
       this.isDeafened = !this.isDeafened;
+      this.emit('deafen', { deafened: this.isDeafened });
+      this.emit('state');
+      return this.isDeafened;
+    }
+
+    setDeafen(deafened) {
+      this.isDeafened = Boolean(deafened);
       this.emit('deafen', { deafened: this.isDeafened });
       this.emit('state');
       return this.isDeafened;
@@ -967,8 +985,24 @@
     toggleMute() {
       return (activeBackend() || window.RelayVoipClassic).toggleMute?.();
     },
+    setMute(muted) {
+      const active = activeBackend() || window.RelayVoipClassic;
+      if (typeof active.setMute === 'function') return active.setMute(muted);
+      const snap = active.getSnapshot?.() || {};
+      const current = Boolean(snap.isMuted ?? snap.muted);
+      if (current !== Boolean(muted)) return active.toggleMute?.();
+      return Boolean(muted);
+    },
     toggleDeafen() {
       return (activeBackend() || window.RelayVoipClassic).toggleDeafen?.();
+    },
+    setDeafen(deafened) {
+      const active = activeBackend() || window.RelayVoipClassic;
+      if (typeof active.setDeafen === 'function') return active.setDeafen(deafened);
+      const snap = active.getSnapshot?.() || {};
+      const current = Boolean(snap.isDeafened ?? snap.deafened);
+      if (current !== Boolean(deafened)) return active.toggleDeafen?.();
+      return Boolean(deafened);
     },
     toggleVideo() {
       return (activeBackend() || window.RelayVoipClassic).toggleVideo?.();

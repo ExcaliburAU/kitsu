@@ -4355,8 +4355,18 @@ html.monochrome {
   object-fit: contain;
 }
 
+.message-scroll-wrap {
+  position: relative;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .message-list {
   position: relative;
+  flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
@@ -4368,6 +4378,48 @@ html.monochrome {
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--text-muted) 55%, transparent) transparent;
+}
+
+.jump-to-latest {
+  position: absolute;
+  left: 50%;
+  bottom: 0.85rem;
+  z-index: 8;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.4rem 0.85rem 0.4rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel, var(--surface)) 94%, black);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.38);
+}
+
+.jump-to-latest[hidden] {
+  display: none !important;
+}
+
+.jump-to-latest .ui-icon {
+  width: 0.95rem;
+  height: 0.95rem;
+}
+
+.jump-to-latest:hover {
+  border-color: color-mix(in srgb, var(--primary) 45%, var(--line));
+  background: color-mix(in srgb, var(--surface) 92%, var(--primary) 8%);
+}
+
+.jump-to-latest:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--primary) 70%, white);
+  outline-offset: 2px;
 }
 
 .message-list > .message:last-child {
@@ -4739,6 +4791,25 @@ html.monochrome {
   display: none;
 }
 
+/* Paarrot: delete only while Shift is held */
+.message-toolbar-btn--shift-only {
+  display: none;
+}
+
+body.shift-held .message-toolbar-btn--shift-only:not(.is-hidden) {
+  display: grid;
+}
+
+.message-toolbar-btn--danger {
+  color: color-mix(in srgb, #e57373 85%, var(--text-muted));
+}
+
+.message-toolbar-btn--danger:hover,
+.message-toolbar-btn--danger.is-open {
+  background: color-mix(in srgb, #c62828 35%, transparent);
+  color: #ffcdd2;
+}
+
 .message-avatar-wrap {
   /* Keep presence strip avatar-tall — do not stretch with the message row. */
   align-self: start;
@@ -4817,6 +4888,39 @@ html.monochrome {
   margin-bottom: 0.08rem;
   min-width: 0;
   width: 100%;
+}
+
+.message-meta-trailing {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.message .sender-mxid,
+.message .message-meta-sep {
+  display: none;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* Paarrot modern layout: MXID + | appear on hover */
+.message:hover .sender-mxid,
+.message:focus-within .sender-mxid,
+.message:hover .message-meta-sep,
+.message:focus-within .message-meta-sep,
+.message--group-hover .sender-mxid,
+.message--group-hover .message-meta-sep {
+  display: inline;
+}
+
+.message .sender-mxid {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 18rem;
 }
 
 .message .sender {
@@ -4947,12 +5051,15 @@ html.monochrome {
 }
 
 .message .when {
-  margin-left: auto;
   flex-shrink: 0;
   color: var(--text-muted);
   font-size: 0.72rem;
   white-space: nowrap;
-  padding-left: 0.75rem;
+}
+
+.message-meta-trailing .when {
+  padding-left: 0;
+  margin-left: 0;
 }
 
 .message .body {
@@ -5458,11 +5565,26 @@ html.monochrome {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.link-preview--youtube {
+.link-preview--youtube,
+.link-preview--tiktok {
   display: flex;
   flex-direction: column;
   grid-template-columns: none;
-  max-width: min(520px, 100%);
+  /* Align with native .message-video-post width/chrome */
+  width: min(480px, 100%);
+  max-width: 100%;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 14px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface) 78%, #0a0c12);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+
+.link-preview--youtube:hover,
+.link-preview--tiktok:hover {
+  border-color: color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--surface) 78%, #0a0c12);
 }
 
 .youtube-player {
@@ -5480,13 +5602,68 @@ html.monochrome {
   border: 0;
 }
 
-.link-preview--youtube .link-preview-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  padding: 0.65rem 0.75rem 0.75rem;
+.tiktok-player {
+  position: relative;
+  width: min(240px, 100%);
+  aspect-ratio: 9 / 16;
+  max-height: 360px;
+  margin: 0 auto;
+  background: #000;
+  overflow: hidden;
+}
+
+.tiktok-player iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.tiktok-player-launch {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  background: #111;
+  display: grid;
+  place-items: center;
+}
+
+.tiktok-player-thumb {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.tiktok-player-play {
+  position: relative;
+  z-index: 1;
+  width: 3rem;
+  height: 3rem;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, #000 55%, transparent);
+  color: #fff;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding-left: 0.15rem;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 25%, transparent);
+}
+
+.tiktok-player-launch:hover .tiktok-player-play {
+  background: color-mix(in srgb, var(--primary) 70%, #000 30%);
+}
+
+a.message-file-chip-download {
   text-decoration: none;
-  color: inherit;
 }
 
 .link-preview-thumb {

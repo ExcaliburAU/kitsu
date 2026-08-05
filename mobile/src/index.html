@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>Kitsu</title>
+    <link rel="stylesheet" href="connector.css" />
+    <link rel="icon" href="icon.png" />
+  </head>
+  <body>
+    <main class="shell">
+      <img class="logo" src="icon.png" alt="" width="96" height="96" />
+      <h1>Kitsu</h1>
+      <p class="lede">
+        Connect to Kitsu on your PC <span class="muted">(same Wi‑Fi)</span>. Matrix stays on the desktop —
+        this app is the phone UI.
+      </p>
+
+      <label class="field">
+        <span>Desktop address</span>
+        <input
+          id="hostInput"
+          type="url"
+          inputmode="url"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="http://192.168.1.20:6080"
+        />
+      </label>
+
+      <p id="status" class="status" hidden></p>
+
+      <div class="actions">
+        <button type="button" id="connectBtn" class="primary">Connect</button>
+        <button type="button" id="clearBtn" class="ghost">Clear saved</button>
+      </div>
+
+      <ol class="steps">
+        <li>On the PC, open Kitsu and turn on <strong>Mobile companion</strong> (LAN).</li>
+        <li>Enter this phone on the same Wi‑Fi.</li>
+        <li>Use the address shown in Kitsu settings, then Connect.</li>
+      </ol>
+    </main>
+    <script src="connector.js"></script>
+  </body>
+</html>

@@ -4,7 +4,7 @@ const http = require('http');
 /**
  * ThemeHost — remote theme catalog + CSS packs.
  *
- * Built-in themes ship with Conduit. Extra packs will live in a dedicated Themes
+ * Built-in themes ship with Kitsu. Extra packs will live in a dedicated Themes
  * repository. Wire it with RELAY_THEMES_INDEX / RELAY_THEMES_BASE (or constructor
  * options). Until then the API stays available and returns an empty catalog.
  *

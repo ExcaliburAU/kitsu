@@ -1,9 +1,20 @@
 const fs = require('fs');
 const path = require('path');
 const { extractUrls } = require('../link-preview/LinkPreview');
-const { extractMetadataFromPNG } = require('../paarrot/pngMetadata');
+const { extractMetadataFromImage } = require('../paarrot/imageMetadata');
+const {
+  AccountData: PaarrotAccountData,
+  StateEvent: PaarrotStateEvent,
+} = require('../paarrot/constants');
+const {
+  getPersonalEmbedFilters,
+  getRoomWideEmbedFilters,
+  getCombinedEmbedPatterns,
+  isUrlEmbedDisabled,
+  normalizePatterns,
+} = require('../paarrot/embedFilters');
 const livekitRtc = require('../voip/LiveKitRtc');
-const { ensureCryptoIndexedDb, resetCryptoIndexedDb, cryptoDatabasePrefix } = require('./cryptoStore');
+const { ensureCryptoIndexedDb, resetCryptoIndexedDb, recoverCryptoIndexedDb, cryptoDatabasePrefix } = require('./cryptoStore');
 
 /** @type {typeof import('matrix-js-sdk') | null} */
 let sdkPromise = null;
@@ -27,7 +38,7 @@ async function loadRecoveryKeyHelpers() {
 }
 
 /**
- * Server-side Matrix session for Conduit.
+ * Server-side Matrix session for Kitsu.
  * Login + sync + room list against any homeserver (e.g. local Synapse).
  */
 class MatrixSession {
@@ -128,7 +139,9 @@ class MatrixSession {
   getPublicState() {
     if (!this.client) {
       const boot = this.bootSession;
-      if (boot?.userId && boot?.accessToken) {
+      // Only advertise a "connected" boot session while restore is actually running.
+      // After a failed restore, bootSession is cleared — avoids empty chat chrome forever.
+      if (boot?.userId && boot?.accessToken && this.restoring) {
         return {
           connected: true,
           ready: false,
@@ -278,7 +291,7 @@ class MatrixSession {
   }
 
   /**
-   * Paarrot colors live in avatar PNG tEXt (paarrot:color / gradient / borderColor).
+   * Paarrot colors live in avatar metadata (PNG tEXt; JPEG/WebP/GIF XMP color).
    */
   async fetchAvatarPaarrotColors(userId) {
     if (!this.client || !userId) return null;
@@ -312,15 +325,85 @@ class MatrixSession {
       }
     }
 
-    const meta = buffer ? extractMetadataFromPNG(buffer) : {};
+    const meta = buffer ? extractMetadataFromImage(buffer) : {};
     const has =
       Boolean(meta.color) ||
       Boolean(meta.avatarBorderColor) ||
       Boolean(meta.gradient) ||
       Boolean(meta.banner);
     const result = has ? meta : null;
+    if (this.avatarMetaCache.size > 250) {
+      const drop = this.avatarMetaCache.keys().next().value;
+      if (drop !== undefined) this.avatarMetaCache.delete(drop);
+    }
     this.avatarMetaCache.set(userId, { meta: result, ts: Date.now(), avatarKey });
     return result;
+  }
+
+  getEmbedFilters(roomId) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const personal = getPersonalEmbedFilters(room);
+    const roomWide = getRoomWideEmbedFilters(room);
+    return {
+      personal,
+      roomWide,
+      combined: getCombinedEmbedPatterns(room),
+    };
+  }
+
+  async setPersonalEmbedFilters(roomId, disabledPatterns) {
+    if (!this.client) throw new Error('Not logged in');
+    const content = normalizePatterns({ disabledPatterns });
+    await this.client.setRoomAccountData(roomId, PaarrotAccountData.EmbedFilters, content);
+    return content;
+  }
+
+  async setRoomWideEmbedFilters(roomId, disabledPatterns) {
+    if (!this.client) throw new Error('Not logged in');
+    const content = normalizePatterns({ disabledPatterns });
+    await this.client.sendStateEvent(roomId, PaarrotStateEvent.RoomEmbedFilters, content, '');
+    return content;
+  }
+
+  shouldDisableEmbed(roomId, url) {
+    if (!this.client || !roomId || !url) return false;
+    const room = this.client.getRoom(roomId);
+    if (!room) return false;
+    return isUrlEmbedDisabled(url, getCombinedEmbedPatterns(room));
+  }
+
+  getFavEmojis() {
+    if (!this.client) throw new Error('Not logged in');
+    const event = this.client.getAccountData?.(PaarrotAccountData.FavEmojis);
+    const content = event?.getContent?.() || {};
+    return content && typeof content === 'object' ? content : {};
+  }
+
+  async setFavEmojis(usage) {
+    if (!this.client) throw new Error('Not logged in');
+    const content =
+      usage && typeof usage === 'object' && !Array.isArray(usage) ? usage : {};
+    await this.client.setAccountData(PaarrotAccountData.FavEmojis, content);
+    return content;
+  }
+
+  getRoomEmotes(roomId) {
+    if (!this.client) throw new Error('Not logged in');
+    const room = this.client.getRoom(roomId);
+    if (!room) throw new Error('Room not found');
+    const events = room.currentState?.getStateEvents?.(PaarrotStateEvent.RoomEmotes) || [];
+    const packs = [];
+    for (const event of Array.isArray(events) ? events : [events].filter(Boolean)) {
+      const content = event?.getContent?.() || {};
+      packs.push({
+        stateKey: event.getStateKey?.() || '',
+        pack: content.pack || null,
+        images: content.images || {},
+      });
+    }
+    return { packs };
   }
 
   getLocalProfileAvatarPath(userId, size = 96) {
@@ -1095,11 +1178,17 @@ class MatrixSession {
     };
 
     client.on(sdk.ClientEvent.Sync, (state) => {
+      const becameReady =
+        !this.ready && (state === 'PREPARED' || state === 'SYNCING');
       if (state === 'PREPARED' || state === 'SYNCING') {
         this.ready = true;
         this.lastError = null;
       }
       this.pluginHost?.emit('sync-state', { state, userId: client.getUserId() });
+      // Tell the UI first sync finished so it can reload timelines painted early/empty.
+      if (becameReady) {
+        this.publishLive({ kind: 'sync', state, live: true });
+      }
     });
 
     const onSessionLoggedOut = (err) => {
@@ -1531,7 +1620,7 @@ class MatrixSession {
     const loginBody = {
       user: userId,
       password: String(password || ''),
-      initial_device_display_name: deviceName || 'Conduit Desktop',
+      initial_device_display_name: deviceName || 'Kitsu Desktop',
     };
 
     if (!loginBody.user || !loginBody.password) {
@@ -1620,31 +1709,94 @@ class MatrixSession {
       const message = error?.message || String(error);
       this.cryptoError = message;
       console.warn('[MatrixSession] rust crypto init failed:', message);
-      if (/doesn't match the account in the constructor|account in the store/i.test(message)) {
-        console.warn('[MatrixSession] resetting crypto store after device/account mismatch');
+      const mismatch = /doesn't match the account in the constructor|account in the store/i.test(
+        message,
+      );
+      const dbClosed = /Database is not open|IO error|LOCK|LEVEL_LOCKED/i.test(message);
+      if (mismatch || dbClosed) {
+        console.warn(
+          `[MatrixSession] recovering crypto store (${mismatch ? 'account mismatch' : 'db lock'})`,
+        );
         try {
-          resetCryptoIndexedDb(this.dataDir);
-          await ensureCryptoIndexedDb(this.dataDir);
+          await recoverCryptoIndexedDb(this.dataDir, { wipe: mismatch });
           await initCrypto();
           this.cryptoError = null;
-          console.warn('[MatrixSession] rust crypto recovered after store reset');
+          console.warn('[MatrixSession] rust crypto recovered');
         } catch (retryError) {
-          this.cryptoError = retryError?.message || String(retryError);
-          console.warn('[MatrixSession] rust crypto recovery failed:', this.cryptoError);
+          // Last resort: wipe store once more for lock corruption.
+          if (dbClosed && !mismatch) {
+            try {
+              await recoverCryptoIndexedDb(this.dataDir, { wipe: true });
+              await initCrypto();
+              this.cryptoError = null;
+              console.warn('[MatrixSession] rust crypto recovered after wipe');
+            } catch (wipeError) {
+              this.cryptoError = wipeError?.message || String(wipeError);
+              console.warn('[MatrixSession] rust crypto recovery failed:', this.cryptoError);
+            }
+          } else {
+            this.cryptoError = retryError?.message || String(retryError);
+            console.warn('[MatrixSession] rust crypto recovery failed:', this.cryptoError);
+          }
         }
       }
     }
 
     // Smaller first sync batch = faster ready; timeline still back-paginates on demand.
     await client.startClient({
-      initialSyncLimit: 12,
+      initialSyncLimit: 50,
       lazyLoadMembers: true,
     });
+
+    // startClient resolves before the first /sync completes — wait for PREPARED so
+    // room timelines are populated before the UI fetches messages.
+    await this.waitForInitialSync(client, sdk);
 
     this.pluginHost?.emit('session-start', {
       userId: session.userId,
       homeserver: session.baseUrl,
       crypto: this.cryptoReady,
+    });
+  }
+
+  waitForInitialSync(client, sdk, timeoutMs = 45000) {
+    if (!client) return Promise.resolve();
+    const state = client.getSyncState?.();
+    if (state === 'PREPARED' || state === 'SYNCING' || this.ready) {
+      this.ready = true;
+      return Promise.resolve();
+    }
+
+    return new Promise((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        try {
+          client.removeListener(sdk.ClientEvent.Sync, onSync);
+        } catch {
+          // ignore
+        }
+        clearTimeout(timer);
+        resolve();
+      };
+      const onSync = (next) => {
+        if (next === 'PREPARED' || next === 'SYNCING') {
+          this.ready = true;
+          finish();
+        }
+      };
+      const timer = setTimeout(() => {
+        console.warn('[MatrixSession] initial sync wait timed out; continuing');
+        finish();
+      }, timeoutMs);
+      client.on(sdk.ClientEvent.Sync, onSync);
+      // Race: sync may have completed between getSyncState and listener attach.
+      const now = client.getSyncState?.();
+      if (now === 'PREPARED' || now === 'SYNCING' || this.ready) {
+        this.ready = true;
+        finish();
+      }
     });
   }
 
@@ -1692,6 +1844,24 @@ class MatrixSession {
       if (authDead) {
         console.warn('[MatrixSession] clearing stored session after auth failure');
         this.clearStoredSession();
+        this.bootSession = null;
+      } else if (/Database is not open|IO error|LOCK|LEVEL_LOCKED/i.test(message)) {
+        // One automatic recovery pass so a crash-lock doesn't leave empty chat UI.
+        try {
+          console.warn('[MatrixSession] retrying restore after crypto DB recovery');
+          await recoverCryptoIndexedDb(this.dataDir, { wipe: false });
+          await this.startFromSession(session);
+          console.log(`[MatrixSession] restore recovered in ${Date.now() - started}ms`);
+        } catch (retryError) {
+          console.warn(
+            '[MatrixSession] restore recovery failed:',
+            retryError?.message || retryError,
+          );
+          this.lastError = retryError?.message || String(retryError);
+          this.bootSession = null;
+        }
+      } else {
+        // Failed restore must not keep advertising a fake connected session.
         this.bootSession = null;
       }
     } finally {
@@ -2628,7 +2798,7 @@ class MatrixSession {
     if (!crypto) throw new Error('Crypto is not available');
     const crossSigningReady = Boolean(await crypto.isCrossSigningReady?.());
     if (!crossSigningReady) {
-      throw new Error('Verify this Conduit device first, then you can verify others.');
+      throw new Error('Verify this Kitsu device first, then you can verify others.');
     }
     if (typeof crypto.crossSignDevice !== 'function') {
       throw new Error('Device verification is not supported by this crypto stack');
@@ -4749,12 +4919,38 @@ class MatrixSession {
     };
   }
 
-  async ensureRoomHistory(roomId, { minEvents = 120, batchSize = 50, maxBatches = 20 } = {}) {
+  /** Count chat-like events in the live timeline (not membership/state noise). */
+  countRoomChatEvents(roomId) {
+    if (!this.client) return 0;
+    const room = this.client.getRoom(roomId);
+    if (!room) return 0;
+    const events = room.getLiveTimeline()?.getEvents?.() || [];
+    let count = 0;
+    for (const event of events) {
+      const type = event.getType?.() || '';
+      if (
+        type === 'm.room.message' ||
+        type === 'm.room.encrypted' ||
+        type === 'm.reaction' ||
+        type === 'm.sticker' ||
+        type === 'app.relay.emoji_confetti'
+      ) {
+        count += 1;
+      }
+    }
+    return count;
+  }
+
+  async ensureRoomHistory(
+    roomId,
+    { minEvents = 120, minMessages = 0, batchSize = 50, maxBatches = 20 } = {},
+  ) {
     if (!this.client) throw new Error('Not logged in');
     const room = this.client.getRoom(roomId);
     if (!room) throw new Error('Room not found');
 
-    const target = Math.max(30, Math.min(800, Number(minEvents) || 120));
+    const targetEvents = Math.max(30, Math.min(800, Number(minEvents) || 120));
+    const targetMessages = Math.max(0, Math.min(500, Number(minMessages) || 0));
     const size = Math.max(10, Math.min(100, Number(batchSize) || 50));
     const batches = Math.max(1, Math.min(40, Number(maxBatches) || 20));
     let runs = 0;
@@ -4762,7 +4958,10 @@ class MatrixSession {
 
     while (runs < batches) {
       const count = room.getLiveTimeline()?.getEvents?.()?.length || 0;
-      if (count >= target) break;
+      const chatCount = this.countRoomChatEvents(roomId);
+      const eventsOk = count >= targetEvents;
+      const messagesOk = !targetMessages || chatCount >= targetMessages;
+      if (eventsOk && messagesOk) break;
       if (await this.isRoomTimelineAtStart(roomId)) break;
       const result = await this.scrollbackRoom(roomId, size);
       runs += 1;
@@ -4773,10 +4972,39 @@ class MatrixSession {
     return {
       roomId,
       eventCount: room.getLiveTimeline()?.getEvents?.()?.length || 0,
+      messageCount: this.countRoomChatEvents(roomId),
       added: addedTotal,
       batches: runs,
       atStart: await this.isRoomTimelineAtStart(roomId),
     };
+  }
+
+  /**
+   * Pull recent history from the HS when the live timeline is too thin
+   * (common after restart — sync only seeds a small window).
+   */
+  async hydrateRoomTimeline(roomId, { minMessages = 80, maxBatches = 20 } = {}) {
+    if (!this.client) return null;
+    const room = this.client.getRoom(roomId);
+    if (!room) return null;
+    const want = Math.max(20, Math.min(300, Number(minMessages) || 80));
+    const have = this.countRoomChatEvents(roomId);
+    if (have >= want) {
+      return {
+        roomId,
+        messageCount: have,
+        added: 0,
+        batches: 0,
+        atStart: await this.isRoomTimelineAtStart(roomId),
+        hydrated: false,
+      };
+    }
+    return this.ensureRoomHistory(roomId, {
+      minEvents: Math.max(want * 2, 100),
+      minMessages: want,
+      batchSize: 60,
+      maxBatches,
+    });
   }
 
   resolveMediaThumb(mxc, size = 320) {

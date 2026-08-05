@@ -1,9 +1,9 @@
 {
-  "name": "conduit",
-  "version": "0.1.7",
+  "name": "kitsu",
+  "version": "0.2.0",
   "private": true,
   "author": "ExcaliburAU",
-  "description": "Conduit — lean themeable Matrix desktop client with plugins",
+  "description": "Kitsu — lean themeable Matrix desktop client with plugins",
   "main": "electron/main.js",
   "scripts": {
     "start": "node server.js",
@@ -14,6 +14,11 @@
     "build:markdown": "node scripts/build-markdown.mjs",
     "build:livekit": "node scripts/build-livekit.mjs",
     "build:vendor": "node scripts/build-markdown.mjs && node scripts/build-livekit.mjs",
+    "streamdeck:validate": "node streamdeck-plugin/validate.js",
+    "streamdeck:build": "node streamdeck-plugin/build.js",
+    "streamdeck:install": "node streamdeck-plugin/install-linux.js",
+    "mobile:sync": "npm --prefix mobile run sync",
+    "mobile:apk": "npm --prefix mobile run build:apk",
     "postinstall": "node scripts/build-markdown.mjs && node scripts/build-livekit.mjs",
     "dist:linux": "electron-builder --linux AppImage",
     "dist:win": "electron-builder --win nsis",
@@ -44,8 +49,8 @@
     "esbuild": "^0.28.1"
   },
   "build": {
-    "appId": "app.conduit.desktop",
-    "productName": "Conduit",
+    "appId": "dev.exau.kitsu",
+    "productName": "Kitsu",
     "copyright": "Copyright © ExcaliburAU",
     "icon": "build/icon.png",
     "files": [
@@ -83,7 +88,7 @@
     },
     "linux": {
       "icon": "build/icon.png",
-      "artifactName": "Conduit-${version}.${ext}",
+      "artifactName": "Kitsu-${version}.${ext}",
       "target": [
         "AppImage"
       ],
@@ -91,7 +96,7 @@
     },
     "win": {
       "icon": "build/icon.ico",
-      "artifactName": "Conduit-Setup-${version}.${ext}",
+      "artifactName": "Kitsu-Setup-${version}.${ext}",
       "verifyUpdateCodeSignature": false,
       "target": [
         "nsis"

@@ -1,4 +1,4 @@
-# Conduit
+# Kitsu
 
 Lean, themeable Matrix desktop client with a plugin host.
 

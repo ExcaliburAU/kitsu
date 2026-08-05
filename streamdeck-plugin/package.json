@@ -1,0 +1,19 @@
+{
+  "name": "kitsu-streamdeck-plugin",
+  "version": "1.0.1",
+  "description": "Elgato Stream Deck plugin for Kitsu (Paarrot-compatible local API)",
+  "scripts": {
+    "build": "node build.js",
+    "validate": "node validate.js",
+    "install:linux": "node install-linux.js"
+  },
+  "keywords": [
+    "stream-deck",
+    "elgato",
+    "kitsu",
+    "paarrot",
+    "matrix"
+  ],
+  "author": "Kitsu",
+  "license": "MIT"
+}

@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const {
   app,
   BrowserWindow,
@@ -12,7 +13,37 @@ const {
 } = require('electron');
 const { startServer, stopServer } = require('../server');
 
-const PROTOCOL = 'conduit';
+const PROTOCOL = 'kitsu';
+
+/** Migrate session data from Conduit/Relay userData dirs into Kitsu. */
+function migrateLegacyUserData() {
+  const dest = app.getPath('userData');
+  const destSession = path.join(dest, 'data', 'session.json');
+  if (fs.existsSync(destSession)) return;
+
+  const appData = app.getPath('appData');
+  const candidates = ['conduit', 'Conduit', 'relay', 'Relay'].map((name) =>
+    path.join(appData, name),
+  );
+
+  for (const src of candidates) {
+    const srcSession = path.join(src, 'data', 'session.json');
+    if (!fs.existsSync(srcSession)) continue;
+    try {
+      fs.mkdirSync(dest, { recursive: true });
+      for (const entry of fs.readdirSync(src)) {
+        const from = path.join(src, entry);
+        const to = path.join(dest, entry);
+        if (fs.existsSync(to)) continue;
+        fs.cpSync(from, to, { recursive: true });
+      }
+      console.log(`[kitsu] migrated user data from ${src} → ${dest}`);
+      return;
+    } catch (error) {
+      console.warn('[kitsu] user data migrate failed', error?.message || error);
+    }
+  }
+}
 
 /** @type {string | null} */
 let appUrl = null;
@@ -100,7 +131,7 @@ function registerProtocolHandler() {
     const status = refreshProtocolStatus();
     if (!ok && !status.registered) {
       status.ok = false;
-      status.message = `Windows did not accept ${PROTOCOL}:// registration. Try Repair again (don’t run Conduit as Administrator).`;
+      status.message = `Windows did not accept ${PROTOCOL}:// registration. Try Repair again (don’t run Kitsu as Administrator).`;
     } else if (status.registered) {
       status.message = `${PROTOCOL} is registered on ${process.platform}.`;
     }
@@ -275,12 +306,16 @@ function attachSpellcheckContextMenu(win) {
 }
 
 function createWindow() {
-  const iconPath = path.join(__dirname, 'icon.ico');
+  const iconPath = path.join(
+    __dirname,
+    process.platform === 'win32' ? 'icon.ico' : 'icon.png',
+  );
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 900,
     minHeight: 640,
+    title: 'Kitsu',
     backgroundColor: '#313338',
     autoHideMenuBar: true,
     icon: iconPath,
@@ -301,7 +336,7 @@ function createWindow() {
   });
 
   if (!appUrl) {
-    throw new Error('Conduit backend URL is not ready.');
+    throw new Error('Kitsu backend URL is not ready.');
   }
 
   void mainWindow.loadURL(appUrl);
@@ -341,7 +376,7 @@ function focusMainWindow() {
 }
 
 ipcMain.handle('relay:app-info', () => ({
-  name: 'Conduit',
+  name: 'Kitsu',
   version: app.getVersion(),
   platform: process.platform,
   appPath: app.getAppPath(),
@@ -389,7 +424,7 @@ ipcMain.handle('relay:window-action', (event, action) => {
 ipcMain.handle('relay:show-notification', (event, payload = {}) => {
   if (!Notification.isSupported()) return { ok: false, reason: 'unsupported' };
 
-  const title = String(payload.title || 'Conduit').slice(0, 120);
+  const title = String(payload.title || 'Kitsu').slice(0, 120);
   const body = String(payload.body || '').slice(0, 240);
   const roomId = payload.roomId ? String(payload.roomId) : null;
 
@@ -425,23 +460,30 @@ ipcMain.handle('relay:clear-notifications', (_event, payload = {}) => {
 
 app.whenReady().then(async () => {
   const readyAt = Date.now();
+  app.setName('Kitsu');
   if (process.platform === 'win32') {
-    app.setAppUserModelId('app.conduit.desktop');
+    app.setAppUserModelId('dev.exau.kitsu');
   }
+  migrateLegacyUserData();
 
   const dataDir = path.join(app.getPath('userData'), 'data');
   const pluginsDir = path.join(app.getPath('userData'), 'plugins');
 
   const backend = await startServer({
-    host: '127.0.0.1',
+    // LAN bind so the Android companion can reach this PC on Wi‑Fi.
+    // Window still loads via loopback below.
+    host: process.env.RELAY_HOST || process.env.KITSU_HOST || '0.0.0.0',
     // Stable port keeps renderer localStorage origin consistent across relaunches.
     // Falls back automatically if busy (see startServer).
-    port: Number(process.env.RELAY_PORT) || 6080,
+    port: Number(process.env.RELAY_PORT || process.env.KITSU_PORT) || 6080,
     dataDir,
     pluginsDir,
   });
 
   appUrl = `http://127.0.0.1:${backend.port}`;
+  console.log(
+    `[kitsu] mobile companion: http://<pc-lan-ip>:${backend.port} (bound ${backend.host})`,
+  );
   configureSpellChecker(true);
   createWindow();
   console.log(`[relay] window opened (+${Date.now() - readyAt}ms after app ready)`);

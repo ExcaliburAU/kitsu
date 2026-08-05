@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate Conduit app icon assets from assets/conduit-icon.png."""
+"""Generate Kitsu app icon assets from assets/kitsu-icon.png."""
 
 from __future__ import annotations
 
@@ -13,25 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / "build"
 PUBLIC = ROOT / "public"
 ELECTRON = ROOT / "electron"
-SOURCE = ROOT / "assets" / "conduit-icon.png"
+SOURCE = ROOT / "assets" / "kitsu-icon.png"
 
-SVG = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Conduit">
-  <defs>
-    <linearGradient id="c" x1="512" y1="160" x2="512" y2="864" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#5ff0d0"/>
-      <stop offset="1" stop-color="#12b8a8"/>
-    </linearGradient>
-  </defs>
-  <rect width="1024" height="1024" rx="220" fill="#14161a"/>
-  <g fill="none" stroke="url(#c)" stroke-linecap="round" stroke-linejoin="round">
-    <path stroke-width="92" d="M690 300c-48-70-130-116-222-116-152 0-276 124-276 276s124 276 276 276c92 0 174-46 222-116"/>
-    <path stroke-width="46" d="M638 360c-34-48-90-80-154-80-106 0-192 86-192 192s86 192 192 192c64 0 120-32 154-80"/>
-    <circle cx="690" cy="300" r="34" fill="#14161a" stroke="url(#c)" stroke-width="28"/>
-    <circle cx="690" cy="724" r="34" fill="#14161a" stroke="url(#c)" stroke-width="28"/>
-    <circle cx="292" cy="512" r="28" fill="#14161a" stroke="url(#c)" stroke-width="24"/>
-  </g>
-</svg>
-"""
+SVG = (ROOT / "build" / "icon.svg").read_text(encoding="utf-8")
+
 
 
 def load_source() -> Image.Image:
@@ -104,7 +89,7 @@ def main() -> None:
     write_ico(BUILD / "icon.ico", ico_images)
     write_ico(ELECTRON / "icon.ico", ico_images)
 
-    print(f"Wrote Conduit icons from {SOURCE} ({src.size[0]}x{src.size[1]} padded)")
+    print(f"Wrote Kitsu icons from {SOURCE} ({src.size[0]}x{src.size[1]} padded)")
 
 
 if __name__ == "__main__":

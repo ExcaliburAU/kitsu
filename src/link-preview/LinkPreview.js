@@ -176,6 +176,63 @@ function parseYoutubeVideoId(rawUrl) {
   return null;
 }
 
+function isTikTokHost(hostname) {
+  const host = String(hostname || '')
+    .replace(/^www\./, '')
+    .toLowerCase();
+  return (
+    host === 'tiktok.com' ||
+    host === 'm.tiktok.com' ||
+    host === 'vm.tiktok.com' ||
+    host === 'vt.tiktok.com' ||
+    host.endsWith('.tiktok.com')
+  );
+}
+
+function parseTikTokVideoId(rawUrl) {
+  try {
+    const parsed = new URL(String(rawUrl || '').trim());
+    if (!isTikTokHost(parsed.hostname)) return null;
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    // /@user/video/1234567890
+    const videoIdx = parts.indexOf('video');
+    if (videoIdx >= 0 && parts[videoIdx + 1] && /^\d+$/.test(parts[videoIdx + 1])) {
+      return parts[videoIdx + 1];
+    }
+    // /v/1234567890
+    if (parts[0] === 'v' && parts[1] && /^\d+$/.test(parts[1])) return parts[1];
+    // /embed/v2/123 or /embed/123
+    if (parts[0] === 'embed') {
+      if (parts[1] === 'v2' && parts[2] && /^\d+$/.test(parts[2])) return parts[2];
+      if (parts[1] && /^\d+$/.test(parts[1])) return parts[1];
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+async function resolveRedirectUrl(rawUrl) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(rawUrl, {
+      method: 'GET',
+      redirect: 'follow',
+      signal: controller.signal,
+      headers: {
+        Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'KitsuLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+      },
+    });
+    return response.url || rawUrl;
+  } catch {
+    return rawUrl;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function fetchYoutubeOEmbed(pageUrl) {
   const endpoint = `https://www.youtube.com/oembed?url=${encodeURIComponent(pageUrl)}&format=json`;
   const controller = new AbortController();
@@ -186,7 +243,7 @@ async function fetchYoutubeOEmbed(pageUrl) {
       signal: controller.signal,
       headers: {
         Accept: 'application/json',
-        'User-Agent': 'ConduitLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+        'User-Agent': 'KitsuLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
       },
     });
     if (!response.ok) return null;
@@ -201,6 +258,46 @@ async function fetchYoutubeOEmbed(pageUrl) {
       siteName: 'YouTube',
       mediaType: 'youtube',
       youtubeId: videoId,
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchTikTokOEmbed(pageUrl) {
+  const endpoint = `https://www.tiktok.com/oembed?url=${encodeURIComponent(pageUrl)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      signal: controller.signal,
+      headers: {
+        Accept: 'application/json',
+        'User-Agent': 'KitsuLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+      },
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const resolved = typeof data.author_url === 'string' ? pageUrl : pageUrl;
+    let tiktokId = parseTikTokVideoId(pageUrl);
+    // oembed html often includes data-video-id="..."
+    if (!tiktokId && typeof data.html === 'string') {
+      const match = data.html.match(/data-video-id="(\d+)"/) || data.html.match(/\/video\/(\d+)/);
+      if (match) tiktokId = match[1];
+    }
+    return {
+      url: resolved,
+      displayUrl: pageUrl,
+      title: typeof data.title === 'string' ? data.title : 'TikTok',
+      description: typeof data.author_name === 'string' ? data.author_name : null,
+      image: typeof data.thumbnail_url === 'string' ? data.thumbnail_url : null,
+      siteName: 'TikTok',
+      mediaType: 'tiktok',
+      tiktokId,
+      authorUrl: typeof data.author_url === 'string' ? data.author_url : null,
     };
   } catch {
     return null;
@@ -246,6 +343,33 @@ async function fetchLinkPreview(rawUrl) {
     return { ...preview, cached: false };
   }
 
+  if (isTikTokHost(parsed.hostname)) {
+    let canonical = href;
+    let tiktokId = parseTikTokVideoId(href);
+    // Short links (vt/vm) need redirect resolve before a stable video id.
+    if (!tiktokId) {
+      canonical = await resolveRedirectUrl(href);
+      tiktokId = parseTikTokVideoId(canonical);
+    }
+    const oembed = (await fetchTikTokOEmbed(canonical)) || (await fetchTikTokOEmbed(href));
+    const preview = oembed || {
+      url: canonical,
+      displayUrl: href,
+      title: 'TikTok',
+      description: null,
+      image: null,
+      siteName: 'TikTok',
+      mediaType: 'tiktok',
+      tiktokId,
+    };
+    preview.url = canonical || preview.url || href;
+    preview.displayUrl = href;
+    preview.mediaType = 'tiktok';
+    if (!preview.tiktokId) preview.tiktokId = tiktokId || parseTikTokVideoId(preview.url);
+    cacheSet(href, preview);
+    return { ...preview, cached: false };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
@@ -256,7 +380,7 @@ async function fetchLinkPreview(rawUrl) {
       signal: controller.signal,
       headers: {
         Accept: 'text/html,application/xhtml+xml;q=0.9,*/*;q=0.8',
-        'User-Agent': 'ConduitLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
+        'User-Agent': 'KitsuLinkPreview/0.1 (+https://github.com/ExcaliburAU; Matrix client)',
       },
     });
 
@@ -269,6 +393,46 @@ async function fetchLinkPreview(rawUrl) {
       }
     } catch (error) {
       if (error.message === 'Redirected to blocked host') throw error;
+    }
+
+    // Redirected into TikTok/YouTube from a share shortener.
+    if (finalParsed) {
+      const yt = parseYoutubeVideoId(finalUrl);
+      if (yt) {
+        const preview = {
+          url: finalUrl,
+          displayUrl: href,
+          title: 'YouTube',
+          description: null,
+          image: `https://i.ytimg.com/vi/${yt}/hqdefault.jpg`,
+          siteName: 'YouTube',
+          mediaType: 'youtube',
+          youtubeId: yt,
+        };
+        const oembed = await fetchYoutubeOEmbed(finalUrl);
+        const merged = oembed ? { ...preview, ...oembed, youtubeId: yt, mediaType: 'youtube' } : preview;
+        cacheSet(href, merged);
+        return { ...merged, cached: false };
+      }
+      if (isTikTokHost(finalParsed.hostname)) {
+        const id = parseTikTokVideoId(finalUrl);
+        const oembed = await fetchTikTokOEmbed(finalUrl);
+        const preview = oembed || {
+          url: finalUrl,
+          displayUrl: href,
+          title: 'TikTok',
+          description: null,
+          image: null,
+          siteName: 'TikTok',
+          mediaType: 'tiktok',
+          tiktokId: id,
+        };
+        preview.mediaType = 'tiktok';
+        preview.tiktokId = preview.tiktokId || id;
+        preview.displayUrl = href;
+        cacheSet(href, preview);
+        return { ...preview, cached: false };
+      }
     }
 
     const contentType = String(response.headers.get('content-type') || '').toLowerCase();
@@ -299,5 +463,7 @@ module.exports = {
   extractUrls,
   fetchLinkPreview,
   parseYoutubeVideoId,
+  parseTikTokVideoId,
+  isTikTokHost,
   repairEmoticonBrokenUrls,
 };

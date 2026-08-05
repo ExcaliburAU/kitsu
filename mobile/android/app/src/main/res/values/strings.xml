@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Kitsu</string>
+    <string name="title_activity_main">Kitsu</string>
+    <string name="package_name">dev.exau.kitsu</string>
+    <string name="custom_url_scheme">dev.exau.kitsu</string>
+</resources>

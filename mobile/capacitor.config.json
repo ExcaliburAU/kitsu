@@ -1,0 +1,26 @@
+{
+  "appId": "dev.exau.kitsu",
+  "appName": "Kitsu",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true,
+    "allowNavigation": [
+      "http://*",
+      "https://*"
+    ]
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchAutoHide": true,
+      "backgroundColor": "#1a1210"
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#1a1210"
+    }
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

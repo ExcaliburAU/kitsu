@@ -44,10 +44,15 @@
       try {
         const res = await fetch('/api/session');
         const session = await res.json().catch(() => ({}));
-        if (session?.connected) {
+        // Only flip to chat once Matrix is actually ready (or still restoring).
+        if (session?.ready || (session?.connected && session?.restoring)) {
           if (loginView) loginView.hidden = true;
           if (chatView) chatView.hidden = false;
-          console.info('[relay] early session restore: connected', session.userId || '');
+          console.info(
+            '[relay] early session restore:',
+            session.ready ? 'ready' : 'restoring',
+            session.userId || '',
+          );
           return;
         }
       } catch (error) {
@@ -59,6 +64,7 @@
   const settingsThemePicker = document.getElementById('settingsThemePicker');
   const roomList = document.getElementById('roomList');
   const messageList = document.getElementById('messageList');
+  const jumpToLatestBtn = document.getElementById('jumpToLatestBtn');
   const typingIndicator = document.getElementById('typingIndicator');
   const activeRoomName = document.getElementById('activeRoomName');
   const activeRoomAvatar = document.getElementById('activeRoomAvatar');
@@ -441,6 +447,8 @@
   const aboutSourceCodeBtn = document.getElementById('aboutSourceCodeBtn');
   const protocolHandlerStatus = document.getElementById('protocolHandlerStatus');
   const protocolRepairBtn = document.getElementById('protocolRepairBtn');
+  const mobileCompanionUrls = document.getElementById('mobileCompanionUrls');
+  const mobileCompanionRefreshBtn = document.getElementById('mobileCompanionRefreshBtn');
   const protocolRefreshBtn = document.getElementById('protocolRefreshBtn');
   const prefAutoConvertEmoticons = document.getElementById('prefAutoConvertEmoticons');
   const defaultPackName = document.getElementById('defaultPackName');
@@ -1042,6 +1050,23 @@
     }
   }
 
+  async function refreshMobileCompanionStatus() {
+    if (!mobileCompanionUrls) return;
+    try {
+      const health = await api('/api/health');
+      const urls = Array.isArray(health.lanAddresses) ? health.lanAddresses.filter(Boolean) : [];
+      if (!urls.length) {
+        mobileCompanionUrls.textContent =
+          'No LAN address found yet. Check Wi‑Fi, then Refresh. Default port is 6080.';
+        return;
+      }
+      mobileCompanionUrls.textContent = urls.join('\n');
+      mobileCompanionUrls.style.whiteSpace = 'pre-wrap';
+    } catch (error) {
+      mobileCompanionUrls.textContent = error.message || String(error);
+    }
+  }
+
   async function refreshAboutSettings() {
     try {
       const health = await api('/api/health');
@@ -1060,13 +1085,14 @@
       }
     }
     await refreshProtocolHandlerStatus();
+    await refreshMobileCompanionStatus();
   }
 
   async function refreshProtocolHandlerStatus() {
     if (!protocolHandlerStatus) return;
     if (!window.relayDesktop?.getProtocolStatus) {
       protocolHandlerStatus.textContent =
-        'Protocol handler is only available in the Conduit desktop app.';
+        'Protocol handler is only available in the Kitsu desktop app.';
       if (protocolRepairBtn) protocolRepairBtn.disabled = true;
       return;
     }
@@ -1075,8 +1101,8 @@
       protocolHandlerStatus.textContent =
         status?.message ||
         (status?.registered
-          ? `conduit is registered on ${status.platform || 'this platform'}.`
-          : 'conduit is not registered.');
+          ? `kitsu is registered on ${status.platform || 'this platform'}.`
+          : 'kitsu is not registered.');
       if (protocolRepairBtn) protocolRepairBtn.disabled = false;
     } catch (error) {
       protocolHandlerStatus.textContent = error.message || String(error);
@@ -1792,7 +1818,7 @@
       logout.className = 'ghost danger-text';
       logout.textContent = 'Logout';
       logout.addEventListener('click', () => {
-        if (!window.confirm('Log out of Conduit on this device?')) return;
+        if (!window.confirm('Log out of Kitsu on this device?')) return;
         void doLogout();
       });
       actions.append(logout);
@@ -1862,7 +1888,7 @@
         verify.disabled = !canVerifyOthers;
         verify.title = canVerifyOthers
           ? 'Cross-sign this device'
-          : 'Verify this Conduit device first';
+          : 'Verify this Kitsu device first';
         verify.addEventListener('click', async () => {
           try {
             await openSasVerifyDialog(device.deviceId);
@@ -2089,7 +2115,7 @@
   function promptCryptoCredentials({ reset = false } = {}) {
     return new Promise((resolve) => {
       if (!cryptoSetupDialog || !cryptoSetupForm || !cryptoSetupRecoveryKey) {
-        window.alert('Encryption setup dialog is missing. Restart Conduit.');
+        window.alert('Encryption setup dialog is missing. Restart Kitsu.');
         resolve(null);
         return;
       }
@@ -2490,7 +2516,7 @@
     }
 
     const who = item.senderName || 'Someone';
-    const title = item.isDirect ? who : item.roomName || 'Conduit';
+    const title = item.isDirect ? who : item.roomName || 'Kitsu';
     const body = item.isDirect
       ? truncateNotifBody(item.body || 'New message')
       : truncateNotifBody(`${who}: ${item.body || 'New message'}`);
@@ -2518,6 +2544,77 @@
     if (!roomId) return;
     localStorage.setItem('relay.lastRoomId', roomId);
     localStorage.setItem('relay.lastRoomSpace', activeSpaceFilter || 'dms');
+  }
+
+  let controlRoomSyncTimer = 0;
+  let lastSyncedControlRoom = undefined;
+  function syncControlRoom(roomId = activeRoomId) {
+    const next = roomId || null;
+    if (next === lastSyncedControlRoom) return;
+    clearTimeout(controlRoomSyncTimer);
+    controlRoomSyncTimer = setTimeout(() => {
+      if (next === lastSyncedControlRoom) return;
+      lastSyncedControlRoom = next;
+      void api('/api/control/room', {
+        method: 'PUT',
+        body: JSON.stringify({ roomId: next }),
+      }).catch(() => {
+        lastSyncedControlRoom = undefined;
+      });
+    }, 80);
+  }
+
+  let callControlSyncTimer = 0;
+  let lastSyncedCallKey = '';
+  function syncCallControl(event = {}) {
+    clearTimeout(callControlSyncTimer);
+    callControlSyncTimer = setTimeout(() => {
+      const snap = window.RelayVoip?.getSnapshot?.() || {};
+      const state = event.state || snap.state || 'idle';
+      const inCall = state !== 'idle' && state !== 'ended';
+      const muted =
+        typeof snap.isMuted === 'boolean'
+          ? snap.isMuted
+          : typeof snap.muted === 'boolean'
+            ? snap.muted
+            : Boolean(event.muted);
+      const deafened =
+        typeof snap.isDeafened === 'boolean'
+          ? snap.isDeafened
+          : typeof snap.deafened === 'boolean'
+            ? snap.deafened
+            : Boolean(event.deafened);
+      const roomId = event.roomId || snap.roomId || null;
+      const key = `${muted}|${deafened}|${inCall}|${roomId || ''}`;
+      if (key === lastSyncedCallKey) return;
+      lastSyncedCallKey = key;
+      void api('/api/control/call', {
+        method: 'PUT',
+        body: JSON.stringify({ muted, deafened, inCall, roomId }),
+      }).catch(() => {
+        lastSyncedCallKey = '';
+      });
+    }, 80);
+  }
+
+  function handlePaarrotControl(data) {
+    const action = String(data?.action || '');
+    if (action === 'change-channel' && data.roomId) {
+      void openRoomEntry({ roomId: data.roomId, name: data.roomId });
+      return;
+    }
+    if (action === 'set-mute') {
+      window.RelayVoip?.setMute?.(Boolean(data.muted));
+      syncCallControl({ muted: Boolean(data.muted) });
+      updateCallChrome();
+      return;
+    }
+    if (action === 'set-deafen') {
+      window.RelayVoip?.setDeafen?.(Boolean(data.deafened));
+      applyCallMediaMute(Boolean(data.deafened));
+      syncCallControl({ deafened: Boolean(data.deafened) });
+      updateCallChrome();
+    }
   }
 
   async function restoreLastRoomIfNeeded() {
@@ -2556,6 +2653,7 @@
     }
 
     activeRoomId = lastId;
+    syncControlRoom(lastId);
     updateTimelineHead(room || { roomId: lastId, name: room?.name || lastId });
     composerForm.hidden = false;
     stickMessagesToBottom = true;
@@ -2565,13 +2663,12 @@
     updateCallChrome();
     setMembersPanelOpen(membersPanelOpen);
     if (sharedMediaOpen) void refreshSharedMedia(lastId);
-    // Fast first paint — don't block UI on deep history fetch.
-    await refreshMessages(lastId, { pinBottom: true, history: false, limit: 80 });
-    void refreshMessages(lastId, {
-      quiet: true,
+    // Hydrate recent history so messages from other clients while offline appear.
+    await refreshMessages(lastId, {
+      pinBottom: true,
       history: true,
-      limit: 160,
-      preserveScroll: true,
+      limit: 120,
+      minMessages: 100,
     });
     void refreshTypingIndicator();
     void refreshRooms();
@@ -2600,6 +2697,7 @@
 
     activeRoomId = roomId;
     persistLastRoom(roomId);
+    syncControlRoom(roomId);
     updateTimelineHead(room || { roomId, name: roomId });
     composerForm.hidden = false;
     stickMessagesToBottom = true;
@@ -2609,12 +2707,11 @@
     updateCallChrome();
     setMembersPanelOpen(membersPanelOpen);
     await refreshRooms();
-    await refreshMessages(roomId, { pinBottom: true, history: false, limit: 80 });
-    void refreshMessages(roomId, {
-      quiet: true,
+    await refreshMessages(roomId, {
+      pinBottom: true,
       history: true,
-      limit: 160,
-      preserveScroll: true,
+      limit: 120,
+      minMessages: 100,
     });
   }
 
@@ -3646,6 +3743,14 @@
       '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
       { hidden: !(typeof msg.body === 'string' && msg.body.trim()) },
     );
+    // Paarrot: delete appears on toolbar while Shift is held
+    const deleteBtn = addBtn(
+      'delete',
+      'Delete Message (Shift held)',
+      '<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>',
+      { hidden: !msg.canRedact },
+    );
+    deleteBtn.classList.add('message-toolbar-btn--danger', 'message-toolbar-btn--shift-only');
     const more = addBtn('more', 'More', '<circle cx="6" cy="12" r="1.3" class="ui-icon--fill"/><circle cx="12" cy="12" r="1.3" class="ui-icon--fill"/><circle cx="18" cy="12" r="1.3" class="ui-icon--fill"/>');
 
     bar.addEventListener('click', (event) => {
@@ -3664,6 +3769,23 @@
         setPendingEdit(msg);
       } else if (action === 'copy') {
         if (msg.body) void navigator.clipboard.writeText(msg.body);
+      } else if (action === 'delete') {
+        if (!msg.canRedact || !activeRoomId || !msg.eventId) return;
+        if (!window.confirm('Delete this message for everyone?')) return;
+        const eventId = msg.eventId;
+        const roomId = activeRoomId;
+        applyOptimisticRedaction(eventId);
+        void api(
+          `/api/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(eventId)}/redact`,
+          { method: 'POST', body: '{}' },
+        )
+          .then(() => refreshMessages(roomId, { quiet: true }))
+          .catch((error) => {
+            window.alert((error.message || String(error)).replace(/^MatrixError:\s*/i, ''));
+            lastMessagesFingerprint = '';
+            lastMessagesContentFingerprint = '';
+            void refreshMessages(roomId, { quiet: true });
+          });
       } else if (action === 'more') {
         const rect = more.getBoundingClientRect();
         showMessageMenu(msg, rect.right - 8, rect.bottom + 4, more);
@@ -3802,6 +3924,8 @@
   const senderStyleCache = new Map();
   let selectedNameplate = '';
   let messageRefreshToken = 0;
+  /** Room id while an authoritative history load is in flight — quiet polls must not cancel it. */
+  let historyLoadingRoomId = null;
   let lastMessagesFingerprint = '';
   let lastMessagesContentFingerprint = '';
   let activeRoomMessages = [];
@@ -5146,7 +5270,7 @@
       });
       await refreshAccountSettings();
       if (activeRoomId) void refreshMessages(activeRoomId, { quiet: true });
-      window.alert('Profile style saved for Conduit users');
+      window.alert('Profile style saved for Kitsu users');
     } catch (error) {
       window.alert(error.message || String(error));
     }
@@ -5549,7 +5673,11 @@
   });
 
   function showLogin(reason = 'unspecified') {
-    console.warn('[relay] showLogin:', reason, new Error().stack);
+    // Already on login — avoid re-entry (stack/logging spam + VoIP thrash).
+    if (!loginView.hidden && chatView.hidden) return;
+    if (reason && reason !== 'unspecified') {
+      console.info('[relay] showLogin:', reason);
+    }
     loginView.hidden = false;
     chatView.hidden = true;
     railAccountBtn.hidden = true;
@@ -6122,6 +6250,7 @@
     target.scrollIntoView({ block: 'center', behavior: 'smooth' });
     target.classList.add('message--flash');
     window.setTimeout(() => target.classList.remove('message--flash'), 1600);
+    updateJumpToLatestBtn();
     return true;
   }
 
@@ -7088,8 +7217,21 @@
       } catch {
         return;
       }
+      if (data?.kind === 'paarrot-control') {
+        handlePaarrotControl(data);
+        return;
+      }
       if (data?.kind === 'session' && data.connected === false) {
         void confirmLoggedOut();
+        return;
+      }
+      // First sync finished (or catch-up after restart) — force a full timeline reload.
+      if (data?.kind === 'sync') {
+        void refreshSpaces();
+        void refreshRooms();
+        if (activeRoomId) {
+          void refreshMessages(activeRoomId, { quiet: false, pinBottom: true });
+        }
         return;
       }
       if (data?.kind === 'emoji-confetti') {
@@ -7392,18 +7534,35 @@
         // Heavy vendor bundles after chat chrome is visible.
         void ensureMarkdown().catch(() => {});
         void ensureLiveKit().catch(() => {});
-        // Wait for Matrix client (crypto/sync) before first room fetch.
-        for (let attempt = 0; attempt < 40; attempt += 1) {
+        // Wait for Matrix client sync (PREPARED) before first room fetch.
+        // Server can take up to ~45s on first sync after restart.
+        for (let attempt = 0; attempt < 300; attempt += 1) {
           try {
             const live = await api('/api/session');
-            if (live?.ready || (live?.connected && !live?.restoring)) {
+            if (live?.ready) {
               session = live;
               break;
             }
+            // Restore finished without a live client — don't sit on empty chat forever.
+            if (live && !live.connected && !live.restoring) {
+              session = live;
+              break;
+            }
+            if (live?.connected) session = live;
           } catch {
             // keep waiting
           }
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 150));
+        }
+        if (!session?.ready) {
+          console.warn('[relay] session never became ready', session?.error || '');
+          showLogin('bootstrap:restore-failed');
+          if (loginError && session?.error) {
+            setLoginError(`Session restore failed: ${session.error}`);
+          }
+          void refreshEmojiStickerSettings();
+          void loadThemes().catch(() => {});
+          return;
         }
         if (session?.userId && session.userId !== sessionUserId) {
           showChat(session);
@@ -8721,6 +8880,7 @@
     }
     activeRoomId = room.roomId;
     persistLastRoom(room.roomId);
+    syncControlRoom(room.roomId);
     localTypingSent = false;
     lastTypingFingerprint = '';
     updateTimelineHead(room);
@@ -8757,17 +8917,10 @@
     if (sharedMediaOpen) void refreshSharedMedia(room.roomId);
     void refreshMessages(room.roomId, {
       pinBottom,
-      history: false,
-      limit: sameRoom ? 120 : 80,
+      history: true,
+      limit: sameRoom ? 160 : 120,
+      minMessages: sameRoom ? 160 : 100,
     }).then(() => {
-      if (!sameRoom) {
-        void refreshMessages(room.roomId, {
-          quiet: true,
-          history: true,
-          limit: 160,
-          preserveScroll: true,
-        });
-      }
       if (!pendingScrollEventId) return;
       const eventId = pendingScrollEventId;
       pendingScrollEventId = null;
@@ -9369,16 +9522,24 @@
     syncWorkspaceRailSelection();
   }
 
+  let logoutConfirmPromise = null;
   async function confirmLoggedOut() {
-    try {
-      const session = await api('/api/session');
-      if (session?.connected) return false;
-      showLogin('confirmLoggedOut:session-disconnected');
-      return true;
-    } catch {
-      // Server briefly unavailable (restart) — don't bounce to login.
-      return false;
-    }
+    if (!loginView.hidden && chatView.hidden) return true;
+    if (logoutConfirmPromise) return logoutConfirmPromise;
+    logoutConfirmPromise = (async () => {
+      try {
+        const session = await api('/api/session');
+        if (session?.connected) return false;
+        showLogin('confirmLoggedOut:session-disconnected');
+        return true;
+      } catch {
+        // Server briefly unavailable (restart) — don't bounce to login.
+        return false;
+      } finally {
+        logoutConfirmPromise = null;
+      }
+    })();
+    return logoutConfirmPromise;
   }
 
   async function refreshSpaces() {
@@ -9582,6 +9743,7 @@
   });
 
   document.addEventListener('keydown', (event) => {
+    if (event.key === 'Shift') document.body.classList.add('shift-held');
     if ((event.ctrlKey || event.metaKey) && String(event.key || '').toLowerCase() === 'k') {
       if (!chatView?.hidden) {
         event.preventDefault();
@@ -9608,6 +9770,13 @@
       closeMessageSearch();
       closeCreateChat();
     }
+  });
+
+  document.addEventListener('keyup', (event) => {
+    if (event.key === 'Shift') document.body.classList.remove('shift-held');
+  });
+  window.addEventListener('blur', () => {
+    document.body.classList.remove('shift-held');
   });
 
   userProfileShareBtn.addEventListener('click', async () => {
@@ -10350,6 +10519,7 @@
   }
 
   const linkPreviewCache = new Map();
+  const LINK_PREVIEW_CACHE_MAX = 120;
   let stickMessagesToBottom = true;
   let messageScrollRoomId = null;
   let scrollingMessagesProgrammatically = false;
@@ -10360,6 +10530,16 @@
     return (
       messageList.scrollHeight - messageList.scrollTop - messageList.clientHeight < threshold
     );
+  }
+
+  function updateJumpToLatestBtn() {
+    if (!jumpToLatestBtn || !messageList) return;
+    const show =
+      Boolean(activeRoomId) &&
+      !composerForm?.hidden &&
+      !stickMessagesToBottom &&
+      !isMessageListNearBottom(160);
+    jumpToLatestBtn.hidden = !show;
   }
 
   function clearBottomPinTimers() {
@@ -10404,6 +10584,7 @@
         messageList.scrollTop = messageList.scrollHeight;
         scrollingMessagesProgrammatically = false;
         stickMessagesToBottom = true;
+        updateJumpToLatestBtn();
       });
     });
   }
@@ -10412,12 +10593,14 @@
     stickMessagesToBottom = true;
     clearBottomPinTimers();
     scrollMessagesToBottom({ force: true });
+    updateJumpToLatestBtn();
     // Composer/layout/previews/images can change height after the first paint.
     for (const delay of [48, 160, 400]) {
       bottomPinTimers.push(
         setTimeout(() => {
           if (!stickMessagesToBottom) return;
           scrollMessagesToBottom({ force: true });
+          updateJumpToLatestBtn();
         }, delay),
       );
     }
@@ -10426,9 +10609,15 @@
   messageList.addEventListener('scroll', () => {
     if (scrollingMessagesProgrammatically || messagePaintLock > 0) return;
     stickMessagesToBottom = isMessageListNearBottom();
+    updateJumpToLatestBtn();
     if (messageList.scrollTop < 120) {
       void loadOlderMessages();
     }
+  });
+
+  jumpToLatestBtn?.addEventListener('click', (event) => {
+    event.preventDefault();
+    pinMessagesToBottom();
   });
 
   if (typeof ResizeObserver === 'function') {
@@ -10549,6 +10738,35 @@
         if (parts[0] === 'shorts' || parts[0] === 'embed' || parts[0] === 'live') {
           return parts[1] || null;
         }
+      }
+    } catch {
+      // ignore
+    }
+    return null;
+  }
+
+  function parseTikTokVideoId(rawUrl) {
+    try {
+      const parsed = new URL(String(rawUrl || '').trim());
+      const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+      if (
+        host !== 'tiktok.com' &&
+        host !== 'm.tiktok.com' &&
+        host !== 'vm.tiktok.com' &&
+        host !== 'vt.tiktok.com' &&
+        !host.endsWith('.tiktok.com')
+      ) {
+        return null;
+      }
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      const videoIdx = parts.indexOf('video');
+      if (videoIdx >= 0 && parts[videoIdx + 1] && /^\d+$/.test(parts[videoIdx + 1])) {
+        return parts[videoIdx + 1];
+      }
+      if (parts[0] === 'v' && parts[1] && /^\d+$/.test(parts[1])) return parts[1];
+      if (parts[0] === 'embed') {
+        if (parts[1] === 'v2' && parts[2] && /^\d+$/.test(parts[2])) return parts[2];
+        if (parts[1] && /^\d+$/.test(parts[1])) return parts[1];
       }
     } catch {
       // ignore
@@ -10854,16 +11072,72 @@
     }
   }
 
+  function buildEmbedMediaChip({ badge, title, subtitle, href }) {
+    const fileRow = document.createElement('div');
+    fileRow.className = 'message-file-chip';
+
+    const ext = document.createElement('span');
+    ext.className = 'message-file-chip-ext';
+    ext.textContent = badge;
+    fileRow.appendChild(ext);
+
+    const meta = document.createElement('div');
+    meta.className = 'message-file-chip-meta';
+    const nameEl = document.createElement('span');
+    nameEl.className = 'message-file-chip-name';
+    nameEl.textContent = title;
+    nameEl.title = title;
+    meta.appendChild(nameEl);
+    if (subtitle) {
+      const sub = document.createElement('span');
+      sub.className = 'message-file-chip-size';
+      sub.textContent = subtitle;
+      meta.appendChild(sub);
+    }
+    fileRow.appendChild(meta);
+
+    if (href) {
+      const openBtn = document.createElement('a');
+      openBtn.className = 'message-file-chip-download';
+      openBtn.href = href;
+      openBtn.target = '_blank';
+      openBtn.rel = 'noopener noreferrer';
+      openBtn.title = 'Open link';
+      openBtn.setAttribute('aria-label', `Open ${title}`);
+      openBtn.innerHTML = `
+        <svg class="ui-icon ui-icon--stroke" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M14 4h6v6"/>
+          <path d="M10 14 20 4"/>
+          <path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/>
+        </svg>
+      `;
+      openBtn.addEventListener('click', (event) => event.stopPropagation());
+      fileRow.appendChild(openBtn);
+    }
+
+    return fileRow;
+  }
+
   function buildLinkPreviewCard(preview) {
     const youtubeId = preview.youtubeId || parseYoutubeVideoId(preview.url);
     if (youtubeId || preview.mediaType === 'youtube') {
       const wrap = document.createElement('div');
-      wrap.className = 'link-preview link-preview--youtube';
+      wrap.className = 'link-preview link-preview--youtube message-video-post';
+
+      wrap.appendChild(
+        buildEmbedMediaChip({
+          badge: 'YT',
+          title: truncatePreviewText(preview.title || 'YouTube', 90),
+          subtitle: 'youtube.com',
+          href: preview.url,
+        }),
+      );
 
       const player = document.createElement('div');
       player.className = 'youtube-player';
       const iframe = document.createElement('iframe');
-      iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtubeId)}`;
+      // nocookie + modest branding params reduces Error 153 / embed blocks
+      iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(youtubeId)}?rel=0&modestbranding=1`;
       iframe.title = preview.title || 'YouTube video';
       iframe.loading = 'lazy';
       iframe.allow =
@@ -10872,31 +11146,73 @@
       iframe.referrerPolicy = 'strict-origin-when-cross-origin';
       player.appendChild(iframe);
       wrap.appendChild(player);
+      return wrap;
+    }
 
-      const meta = document.createElement('a');
-      meta.className = 'link-preview-meta';
-      meta.href = preview.url;
-      meta.target = '_blank';
-      meta.rel = 'noopener noreferrer';
+    const tiktokId = preview.tiktokId || parseTikTokVideoId(preview.url);
+    if (tiktokId || preview.mediaType === 'tiktok') {
+      const wrap = document.createElement('div');
+      wrap.className = 'link-preview link-preview--tiktok message-video-post';
+      const openUrl = preview.url || preview.displayUrl;
 
-      const urlLine = document.createElement('span');
-      urlLine.className = 'link-preview-url';
-      urlLine.textContent = 'youtube.com';
-      meta.appendChild(urlLine);
+      wrap.appendChild(
+        buildEmbedMediaChip({
+          badge: 'TT',
+          title: truncatePreviewText(preview.title || 'TikTok', 90),
+          subtitle: 'tiktok.com',
+          href: openUrl,
+        }),
+      );
 
-      const title = document.createElement('strong');
-      title.className = 'link-preview-title';
-      title.textContent = truncatePreviewText(preview.title || 'YouTube', 90);
-      meta.appendChild(title);
+      const player = document.createElement('div');
+      player.className = 'tiktok-player';
 
-      if (preview.description) {
-        const desc = document.createElement('span');
-        desc.className = 'link-preview-desc';
-        desc.textContent = truncatePreviewText(preview.description, 120);
-        meta.appendChild(desc);
+      if (tiktokId) {
+        // Click-to-load keeps timelines light until the user wants audio/video.
+        const launch = document.createElement('button');
+        launch.type = 'button';
+        launch.className = 'tiktok-player-launch';
+        launch.setAttribute('aria-label', 'Play TikTok');
+        if (preview.image) {
+          const thumb = document.createElement('img');
+          thumb.className = 'tiktok-player-thumb';
+          thumb.alt = '';
+          thumb.loading = 'lazy';
+          thumb.referrerPolicy = 'no-referrer';
+          thumb.src = preview.image;
+          launch.appendChild(thumb);
+        }
+        const play = document.createElement('span');
+        play.className = 'tiktok-player-play';
+        play.textContent = '▶';
+        launch.appendChild(play);
+        launch.addEventListener(
+          'click',
+          () => {
+            player.replaceChildren();
+            const iframe = document.createElement('iframe');
+            iframe.src = `https://www.tiktok.com/embed/v2/${encodeURIComponent(tiktokId)}`;
+            iframe.title = preview.title || 'TikTok video';
+            iframe.loading = 'lazy';
+            iframe.allow = 'encrypted-media; autoplay; clipboard-write; fullscreen; picture-in-picture';
+            iframe.allowFullscreen = true;
+            iframe.referrerPolicy = 'strict-origin-when-cross-origin';
+            player.appendChild(iframe);
+          },
+          { once: true },
+        );
+        player.appendChild(launch);
+      } else if (preview.image) {
+        const thumb = document.createElement('img');
+        thumb.className = 'tiktok-player-thumb';
+        thumb.alt = '';
+        thumb.loading = 'lazy';
+        thumb.referrerPolicy = 'no-referrer';
+        thumb.src = preview.image;
+        player.appendChild(thumb);
       }
 
-      wrap.appendChild(meta);
+      wrap.appendChild(player);
       return wrap;
     }
 
@@ -10952,18 +11268,30 @@
   }
 
   async function fetchLinkPreview(url) {
-    if (linkPreviewCache.has(url)) return linkPreviewCache.get(url);
-    const pending = api(`/api/link-preview?url=${encodeURIComponent(url)}`)
+    const cacheKey = `${activeRoomId || ''}::${url}`;
+    if (linkPreviewCache.has(cacheKey)) return linkPreviewCache.get(cacheKey);
+    const roomQs = activeRoomId
+      ? `&roomId=${encodeURIComponent(activeRoomId)}`
+      : '';
+    const pending = api(`/api/link-preview?url=${encodeURIComponent(url)}${roomQs}`)
       .then((data) => {
+        if (data.disabled) {
+          linkPreviewCache.set(cacheKey, null);
+          return null;
+        }
         const preview = data.preview || null;
-        linkPreviewCache.set(url, preview);
+        linkPreviewCache.set(cacheKey, preview);
         return preview;
       })
       .catch(() => {
-        linkPreviewCache.set(url, null);
+        linkPreviewCache.set(cacheKey, null);
         return null;
       });
-    linkPreviewCache.set(url, pending);
+    if (linkPreviewCache.size >= LINK_PREVIEW_CACHE_MAX) {
+      const first = linkPreviewCache.keys().next().value;
+      if (first !== undefined) linkPreviewCache.delete(first);
+    }
+    linkPreviewCache.set(cacheKey, pending);
     return pending;
   }
 
@@ -11826,12 +12154,18 @@
       history = false,
       preserveScroll = false,
       limit = null,
+      minMessages = null,
       messages: presetMessages = null,
       atStart: presetAtStart = null,
     } = {},
   ) {
     if (!roomId || typeof roomId !== 'string') return;
-    const token = ++messageRefreshToken;
+    // Quiet polls must not interrupt / cancel a room-open history hydrate.
+    if (quiet && historyLoadingRoomId === roomId) return;
+
+    const authoritative = history || !quiet;
+    const token = authoritative ? ++messageRefreshToken : messageRefreshToken;
+    if (history) historyLoadingRoomId = roomId;
     void ensureMarkdown().catch(() => {});
     let paintedMessages = false;
     try {
@@ -11853,6 +12187,10 @@
         if (history) {
           qs.set('history', '1');
           qs.set('minEvents', String(Math.max(displayLimit, 160)));
+          qs.set(
+            'minMessages',
+            String(Math.max(Number(minMessages) || 0, displayLimit, 80)),
+          );
           if (!quiet && messageList && activeRoomId === roomId) {
             const status = document.createElement('div');
             status.className = 'timeline-history-status';
@@ -11864,7 +12202,10 @@
         }
         data = await api(`/api/rooms/${encodeURIComponent(roomId)}/messages?${qs}`);
       }
-      if (token !== messageRefreshToken || activeRoomId !== roomId) return;
+      if (activeRoomId !== roomId) return;
+      // Authoritative loads bump the token; quiet loads must yield to a newer authoritative one.
+      if (authoritative && token !== messageRefreshToken) return;
+      if (!authoritative && token !== messageRefreshToken) return;
 
       const messages = data.messages || [];
       activeRoomMessages = messages;
@@ -11992,12 +12333,18 @@
                   <span class="sender-nameplate-asset" aria-hidden="true"></span>
                   <button type="button" class="sender"></button>
                 </span>
-                <span class="when"></span>
+                <span class="message-meta-trailing">
+                  <span class="sender-mxid"></span>
+                  <span class="message-meta-sep" aria-hidden="true">|</span>
+                  <span class="when"></span>
+                </span>
               </div>
               <div class="body">Message deleted</div>
             </div>
           `;
           el.querySelector('.sender').textContent = msg.senderName || msg.sender || 'unknown';
+          const redactedMxid = el.querySelector('.sender-mxid');
+          if (redactedMxid && msg.sender) redactedMxid.textContent = msg.sender;
           el.querySelector('.when').textContent = formatMessageTimestamp(msg.ts);
           messageList.appendChild(el);
           lastMsgSender = null;
@@ -12049,7 +12396,11 @@
                   <span class="sender-nameplate-asset" aria-hidden="true"></span>
                   <button type="button" class="sender"></button>
                 </span>
-                <span class="when"></span>
+                <span class="message-meta-trailing">
+                  <span class="sender-mxid"></span>
+                  <span class="message-meta-sep" aria-hidden="true">|</span>
+                  <span class="when"></span>
+                </span>
               </div>
               <div class="body"></div>
             </div>
@@ -12113,6 +12464,8 @@
           const senderEl = el.querySelector('.sender');
           senderEl.textContent = displayName;
           senderEl.title = msg.sender ? `Mention ${msg.sender}` : `Mention ${displayName}`;
+          const mxidEl = el.querySelector('.sender-mxid');
+          if (mxidEl && msg.sender) mxidEl.textContent = msg.sender;
           const senderStyle =
             legacyUsernameColorEnabled()
               ? null
@@ -12141,6 +12494,28 @@
           showMessageMenu(msg, event.clientX, event.clientY, toolbarMore);
           el.querySelector('.message-toolbar')?.classList.add('is-open');
         });
+
+        // Paarrot: MXID lives on the header row — keep it visible when hovering
+        // continued messages in the same group.
+        if (continued) {
+          const findGroupHeader = (fromEl) => {
+            let cur = fromEl.previousElementSibling;
+            while (cur && cur.classList.contains('message--continued')) {
+              cur = cur.previousElementSibling;
+            }
+            return cur?.classList?.contains('message') ? cur : null;
+          };
+          el.addEventListener('mouseenter', () => {
+            findGroupHeader(el)?.classList.add('message--group-hover');
+          });
+          el.addEventListener('mouseleave', (event) => {
+            const header = findGroupHeader(el);
+            if (!header) return;
+            const related = event.relatedTarget?.closest?.('.message');
+            if (related && (related === header || findGroupHeader(related) === header)) return;
+            header.classList.remove('message--group-hover');
+          });
+        }
 
         const bodyEl = el.querySelector('.body');
         if (msg.replyToEventId) {
@@ -12276,13 +12651,19 @@
         requestAnimationFrame(() => {
           scrollingMessagesProgrammatically = false;
           stickMessagesToBottom = isMessageListNearBottom();
+          updateJumpToLatestBtn();
         });
       } else if (pinBottom || !quiet || stickMessagesToBottom) {
         pinMessagesToBottom();
+      } else {
+        updateJumpToLatestBtn();
       }
     } catch (error) {
       if (!quiet) console.error(error);
     } finally {
+      if (history && historyLoadingRoomId === roomId) {
+        historyLoadingRoomId = null;
+      }
       if (paintedMessages) {
         messagePaintLock = Math.max(0, messagePaintLock - 1);
         if (messagePaintLock === 0 && stickMessagesToBottom) {
@@ -13806,7 +14187,7 @@
     writeNotifPref('relay.notifications', true);
     if (notificationsEnabled) notificationsEnabled.checked = true;
     await showDesktopNotification({
-      title: 'Conduit',
+      title: 'Kitsu',
       body: 'Test notification — you are set up.',
       roomId: activeRoomId,
     });
@@ -14020,7 +14401,7 @@
     applyTextSizePref();
   });
   clearCacheBtn?.addEventListener('click', () => {
-    if (!window.confirm('Clear local caches and reload Conduit? Your login session is kept on the server.')) {
+    if (!window.confirm('Clear local caches and reload Kitsu? Your login session is kept on the server.')) {
       return;
     }
     clearRelayCachesAndReload();
@@ -14039,9 +14420,12 @@
   protocolRefreshBtn?.addEventListener('click', () => {
     void refreshProtocolHandlerStatus();
   });
+  mobileCompanionRefreshBtn?.addEventListener('click', () => {
+    void refreshMobileCompanionStatus();
+  });
   protocolRepairBtn?.addEventListener('click', async () => {
     if (!window.relayDesktop?.repairProtocol) {
-      window.alert('Protocol repair is only available in the Conduit desktop app.');
+      window.alert('Protocol repair is only available in the Kitsu desktop app.');
       return;
     }
     try {
@@ -14131,6 +14515,15 @@
     if (event.type === 'speaking') {
       setSpeakingUsers(event.speakers || []);
       return;
+    }
+    if (
+      event.type === 'state' ||
+      event.type === 'ended' ||
+      event.type === 'deafen' ||
+      event.type === 'incoming' ||
+      event.type === 'connected'
+    ) {
+      syncCallControl(event);
     }
     if (event.type === 'ended' || (event.type === 'state' && event.state === 'idle')) {
       setSpeakingUsers([]);
