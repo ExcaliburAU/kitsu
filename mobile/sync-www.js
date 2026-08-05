@@ -42,14 +42,13 @@ html = html.replace(
   `<head>\n    <script>try{localStorage.setItem('kitsu.standalone','1')}catch(e){}</script>`,
 );
 
-// Remove only the desktop document.write bootstrap (unique marker).
+// Drop the desktop dynamic boot; inject blocking script tags so app.js never races.
 html = html.replace(
-  /\n?\s*<script>\s*\(function \(\) \{\s*var standalone =[\s\S]*?document\.write\('<script src="\\\/vendor\\\/kitsu-browser-api\.js"><\\\\\\\/script>'\);\s*\}\)\(\);\s*<\/script>/m,
+  /<!-- kitsu-standalone-boot -->[\s\S]*?<!-- \/kitsu-standalone-boot -->\s*/m,
   '',
 );
 
-// Load matrix + API shim before app.js (blocking, in order).
-if (!html.includes('src="/vendor/matrix-browser.js"')) {
+if (!html.includes('<script src="/vendor/matrix-browser.js"></script>')) {
   html = html.replace(
     '<script defer src="/app.js"></script>',
     `<script src="/vendor/matrix-browser.js"></script>
@@ -58,8 +57,13 @@ if (!html.includes('src="/vendor/matrix-browser.js"')) {
   );
 }
 
-if (!html.includes('id="loginView"') || html.length < 50_000) {
-  console.error('sync-www: refused to write truncated index.html (%d bytes)', html.length);
+if (
+  !html.includes('id="loginView"') ||
+  !html.includes('<script src="/vendor/matrix-browser.js"></script>') ||
+  !html.includes('href="/style.css"') ||
+  html.length < 50_000
+) {
+  console.error('sync-www: refused to write bad index.html (%d bytes)', html.length);
   process.exit(1);
 }
 

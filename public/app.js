@@ -7491,6 +7491,9 @@
   }
 
   async function bootstrap() {
+    if (window.__kitsuStandaloneReady) {
+      try { await window.__kitsuStandaloneReady; } catch (_) {}
+    }
     try {
       const rememberedHs = localStorage.getItem('relay.homeserver');
       const rememberedUser = localStorage.getItem('relay.user');

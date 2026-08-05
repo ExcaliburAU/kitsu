@@ -2382,6 +2382,7 @@
     <script defer src="/media-prefs.js"></script>
     <script defer src="/voip.js"></script>
     <script defer src="/i18n.js"></script>
+    <!-- kitsu-standalone-boot -->
     <script>
       (function () {
         var standalone =
@@ -2391,10 +2392,23 @@
           location.protocol === 'capacitor:';
         if (!standalone) return;
         localStorage.setItem('kitsu.standalone', '1');
-        document.write('<script src="/vendor/matrix-browser.js"><\\/script>');
-        document.write('<script src="/vendor/kitsu-browser-api.js"><\\/script>');
+        function load(src) {
+          return new Promise(function (resolve, reject) {
+            var s = document.createElement('script');
+            s.src = src;
+            s.onload = resolve;
+            s.onerror = function () { reject(new Error('Failed to load ' + src)); };
+            document.head.appendChild(s);
+          });
+        }
+        window.__kitsuStandaloneReady = load('/vendor/matrix-browser.js').then(function () {
+          return load('/vendor/kitsu-browser-api.js');
+        }).catch(function (err) {
+          console.error('[kitsu] standalone boot failed', err);
+        });
       })();
     </script>
+    <!-- /kitsu-standalone-boot -->
     <script defer src="/app.js"></script>
   </body>
 </html>
