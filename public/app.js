@@ -4156,22 +4156,27 @@
         : '';
       userProfileOnline.hidden = !profile.online;
 
-      // Banner: custom MXC only — never stretch avatar (blurry on wide hero)
+      // Banner color/gradient always under optional banner image (image may fail on phone)
       userProfileBanner.style.background = bannerStyleForUser(profile.userId);
       userProfileBannerImg.hidden = true;
       userProfileBannerImg.removeAttribute('src');
       userProfileBannerImg.classList.remove('is-avatar-fill');
-      if (profile.bannerUrl) {
-        userProfileBannerImg.hidden = false;
-        userProfileBannerImg.src = profile.bannerUrl;
-      } else if (profile.style?.gradientStart && profile.style?.gradientEnd) {
+      if (profile.style?.gradientStart && profile.style?.gradientEnd) {
         const angle = Number(profile.style.gradientAngle) || 180;
         userProfileBanner.style.background = `linear-gradient(${angle}deg, ${profile.style.gradientStart}, ${profile.style.gradientEnd})`;
       } else if (profile.paarrotColors?.gradient?.startColor && profile.paarrotColors?.gradient?.stopColor) {
         const dir = profile.paarrotColors.gradient.direction || '180deg';
         userProfileBanner.style.background = `linear-gradient(${dir}, ${profile.paarrotColors.gradient.startColor}, ${profile.paarrotColors.gradient.stopColor})`;
-      } else if (profile.paarrotColors?.color) {
-        userProfileBanner.style.background = profile.paarrotColors.color;
+      } else if (profile.paarrotColors?.color || profile.style?.color) {
+        userProfileBanner.style.background = profile.paarrotColors?.color || profile.style.color;
+      }
+      if (profile.bannerUrl) {
+        userProfileBannerImg.hidden = false;
+        userProfileBannerImg.onerror = () => {
+          userProfileBannerImg.hidden = true;
+          userProfileBannerImg.removeAttribute('src');
+        };
+        userProfileBannerImg.src = profile.bannerUrl;
       }
 
       if (profile.statusMsg) {
@@ -8387,7 +8392,24 @@
       sectionEl.appendChild(row);
     };
 
-    if (!groups.length) {
+    // Fallback: older/shim payloads may only send flat rooms
+    const lobbyGroups =
+      groups.length > 0
+        ? groups
+        : roomCatalog.length
+          ? [
+              {
+                type: 'section',
+                id: `${activeSpaceFilter}:rooms`,
+                spaceId: activeSpaceFilter,
+                name: 'Rooms',
+                items: roomCatalog.map((room) => ({ type: 'room', ...room })),
+                rooms: roomCatalog.slice(),
+              },
+            ]
+          : [];
+
+    if (!lobbyGroups.length) {
       const section = document.createElement('section');
       section.className = 'lobby-section';
       const head = document.createElement('div');
@@ -8417,10 +8439,15 @@
         '<strong>No Rooms</strong><span>This space does not contains rooms yet.</span>';
       section.appendChild(empty);
       lobbyBody.appendChild(section);
+      try {
+        window.KitsuStandalone?.hydrateMedia?.();
+      } catch {
+        /* ignore */
+      }
       return;
     }
 
-    for (const group of groups) {
+    for (const group of lobbyGroups) {
       const section = document.createElement('section');
       section.className = 'lobby-section';
       const head = document.createElement('div');
@@ -8470,6 +8497,11 @@
         for (const item of items) appendCard(section, item);
       }
       lobbyBody.appendChild(section);
+    }
+    try {
+      window.KitsuStandalone?.hydrateMedia?.();
+    } catch {
+      /* ignore */
     }
   }
 

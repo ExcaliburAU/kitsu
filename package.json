@@ -1,6 +1,6 @@
 {
   "name": "kitsu",
-  "version": "0.3.11",
+  "version": "0.3.12",
   "private": true,
   "author": "ExcaliburAU",
   "description": "Kitsu — lean themeable Matrix desktop client with plugins",

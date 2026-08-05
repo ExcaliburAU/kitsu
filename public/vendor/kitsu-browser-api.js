@@ -67,6 +67,9 @@
   const avatarMetaCache = new Map();
   /** @type {Map<string, string>} */
   const blobUrlCache = new Map();
+  /** @type {Map<string, { contentType: string, buffer: ArrayBuffer, ts: number }>} */
+  const mediaBufferCache = new Map();
+  const MEDIA_CACHE_TTL_MS = 5 * 60 * 1000;
 
   function mediaProxy(remoteUrl) {
     if (!remoteUrl) return null;
@@ -76,6 +79,33 @@
   function profileAvatarPath(userId, size = 96) {
     if (!userId) return null;
     return `/api/profile-avatar?userId=${encodeURIComponent(userId)}&size=${encodeURIComponent(size)}`;
+  }
+
+  function roomAvatarPath(roomId, size = 96, { original = false } = {}) {
+    if (!roomId) return null;
+    const params = new URLSearchParams({ size: String(size) });
+    if (original) params.set('original', '1');
+    return `/api/avatar/${encodeURIComponent(roomId)}?${params.toString()}`;
+  }
+
+  function rememberMediaBuffer(key, payload) {
+    if (!key || !payload?.buffer) return payload;
+    if (mediaBufferCache.size > 120) {
+      const drop = mediaBufferCache.keys().next().value;
+      if (drop !== undefined) mediaBufferCache.delete(drop);
+    }
+    mediaBufferCache.set(key, { ...payload, ts: Date.now() });
+    return payload;
+  }
+
+  function readMediaBuffer(key) {
+    const hit = mediaBufferCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.ts > MEDIA_CACHE_TTL_MS) {
+      mediaBufferCache.delete(key);
+      return null;
+    }
+    return { contentType: hit.contentType, buffer: hit.buffer };
   }
 
   function mxcToRemote(mxc, width, height, method = 'crop') {
@@ -113,12 +143,20 @@
 
   async function fetchRemoteMedia(remoteUrl) {
     if (!remoteUrl) return null;
+    const cached = readMediaBuffer(`remote:${remoteUrl}`);
+    if (cached) return cached;
     const tryOnce = async (withAuth) => {
       try {
-        const response = await origFetch(remoteUrl, {
-          headers: withAuth ? authHeaders() : {},
-          redirect: 'follow',
-        });
+        const headers = withAuth ? authHeaders() : {};
+        let response = await origFetch(remoteUrl, { headers, redirect: 'follow' });
+        // Some HS builds still accept access_token on media URLs
+        if (!response.ok && withAuth && client?.getAccessToken?.()) {
+          const token = client.getAccessToken();
+          const joiner = remoteUrl.includes('?') ? '&' : '?';
+          response = await origFetch(`${remoteUrl}${joiner}access_token=${encodeURIComponent(token)}`, {
+            redirect: 'follow',
+          });
+        }
         if (!response.ok) return { response, buffer: null, contentType: null };
         const contentType = response.headers.get('Content-Type') || 'application/octet-stream';
         const buffer = await response.arrayBuffer();
@@ -128,11 +166,12 @@
       }
     };
     let result = await tryOnce(true);
-    if (!result.buffer && result.response?.status === 401) {
-      result = await tryOnce(false);
-    }
+    if (!result.buffer) result = await tryOnce(false);
     if (!result.buffer) return null;
-    return { contentType: result.contentType, buffer: result.buffer };
+    return rememberMediaBuffer(`remote:${remoteUrl}`, {
+      contentType: result.contentType,
+      buffer: result.buffer,
+    });
   }
 
   function getAvatarMxc(userId, room = null) {
@@ -558,9 +597,81 @@
       .trim();
   }
 
-  function roomAvatarPath(room) {
-    const mxc = room?.getMxcAvatarUrl?.() || null;
-    return mxc ? mxcToHttp(mxc, 96) : null;
+  function getPaarrotSubRoomIds(room) {
+    try {
+      if (!room?.currentState?.getStateEvents) return [];
+      let event = room.currentState.getStateEvents('im.paarrot.sub_rooms', '');
+      if (!event) {
+        const all = room.currentState.getStateEvents('im.paarrot.sub_rooms') || [];
+        event = Array.isArray(all) ? all[0] : all;
+      }
+      const content = event?.getContent?.() || {};
+      const raw = content.children ?? content.rooms ?? content.room_ids ?? [];
+      return Array.isArray(raw)
+        ? raw.filter((id) => typeof id === 'string' && id.startsWith('!'))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function getRoomAvatarMxc(room) {
+    if (!room) return null;
+    try {
+      if (typeof room.getMxcAvatarUrl === 'function') {
+        const mxc = room.getMxcAvatarUrl();
+        if (mxc) return mxc;
+      }
+      const event = room.currentState?.getStateEvents?.('m.room.avatar', '');
+      const url = event?.getContent?.()?.url;
+      return typeof url === 'string' ? url : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getDmPeerUserId(room) {
+    if (!room || !client) return null;
+    try {
+      const myId = client.getUserId();
+      const members = room.getJoinedMembers?.() || [];
+      const other = members.find((m) => m.userId !== myId);
+      return other?.userId || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function getRoomAvatarRemote(room, size = 96, { original = false } = {}) {
+    if (!client || !room) return null;
+    const mxc = getRoomAvatarMxc(room);
+    if (mxc) {
+      if (original) return mxcToFullRemote(mxc);
+      return mxcToRemote(mxc, size, size, 'crop') || mxcToFullRemote(mxc);
+    }
+    const peerId = getDmPeerUserId(room);
+    if (peerId) {
+      const peerMxc = getAvatarMxc(peerId, room);
+      if (peerMxc) {
+        if (original) return mxcToFullRemote(peerMxc);
+        return mxcToRemote(peerMxc, size, size, 'crop') || mxcToFullRemote(peerMxc);
+      }
+    }
+    return null;
+  }
+
+  async function fetchRoomAvatarBuffer(roomId, size = 96, { original = false } = {}) {
+    if (!client || !roomId) return null;
+    const cacheKey = `room-avatar:${roomId}:${size}:${original ? 1 : 0}`;
+    const cached = readMediaBuffer(cacheKey);
+    if (cached) return cached;
+    const room = client.getRoom(roomId);
+    if (!room) return null;
+    const remote = getRoomAvatarRemote(room, size, { original });
+    if (!remote) return null;
+    const media = await fetchRemoteMedia(remote);
+    if (!media) return null;
+    return rememberMediaBuffer(cacheKey, media);
   }
 
   function getSpaceSummary(spaceId) {
@@ -577,7 +688,7 @@
     unread += room.getUnreadNotificationCount?.() || 0;
     const alias = room.getCanonicalAlias?.() || null;
     const topic = room.currentState?.getStateEvents?.('m.room.topic', '')?.getContent?.()?.topic || '';
-    const avatarUrl = roomAvatarPath(room);
+    const hasAvatar = Boolean(getRoomAvatarRemote(room, 96, { original: true }));
     return {
       spaceId: room.roomId,
       name: room.name || room.roomId,
@@ -586,8 +697,8 @@
       permalink: alias ? `https://matrix.to/#/${alias}` : `https://matrix.to/#/${room.roomId}`,
       childCount: childIds.length,
       unread,
-      avatarUrl,
-      hasAvatar: Boolean(avatarUrl),
+      avatarUrl: roomAvatarPath(room.roomId, 96, { original: true }),
+      hasAvatar,
       isForum: isForumContainer(room),
     };
   }
@@ -644,30 +755,169 @@
     if (!client) return { groups: [], rooms: [], space: null, parents: [] };
     const spaceRoom = client.getRoom(spaceId);
     if (!spaceRoom || !isSpaceLikeRoom(spaceRoom)) return { groups: [], rooms: [], space: null, parents: [] };
+
     const directIds = getDirectIds();
-    const rooms = [];
+    const flatRooms = [];
     const seen = new Set();
-    for (const childId of getSpaceChildIds(spaceRoom)) {
-      const child = client.getRoom(childId);
+    const placedRooms = new Set();
+    const placedSections = new Set();
+    const groups = [];
+    let current = null;
+
+    const globalSubRoomIds = new Set();
+    for (const room of client.getRooms() || []) {
+      for (const childId of getPaarrotSubRoomIds(room)) globalSubRoomIds.add(childId);
+    }
+
+    const takeRoom = (room) => {
+      if (!room || !isJoined(room) || isSpaceLikeRoom(room)) return null;
+      if (seen.has(room.roomId)) {
+        return flatRooms.find((entry) => entry.roomId === room.roomId) || null;
+      }
+      const item = serializeRoom(room, { isDirect: directIds.has(room.roomId) });
+      seen.add(room.roomId);
+      flatRooms.push(item);
+      return item;
+    };
+
+    const sectionMeta = (space) => ({
+      avatarUrl: roomAvatarPath(space.roomId, 48),
+      hasAvatar: Boolean(getRoomAvatarRemote(space, 48)),
+      memberCount:
+        typeof space.getJoinedMemberCount === 'function'
+          ? space.getJoinedMemberCount()
+          : space.getJoinedMembers?.()?.length || 0,
+    });
+
+    const startSection = (sectionSpace, label, { suggested = false } = {}) => {
+      if (placedSections.has(sectionSpace.roomId)) {
+        current = groups.find((group) => group.spaceId === sectionSpace.roomId) || current;
+        return current;
+      }
+      placedSections.add(sectionSpace.roomId);
+      const isRootRooms = sectionSpace.roomId === spaceId;
+      current = {
+        type: isRootRooms ? 'section' : 'folder',
+        id: isRootRooms ? `${spaceId}:rooms` : sectionSpace.roomId,
+        spaceId: sectionSpace.roomId,
+        name: label,
+        unread: 0,
+        suggested: Boolean(suggested),
+        ...sectionMeta(sectionSpace),
+        items: [],
+        rooms: [],
+      };
+      groups.push(current);
+      return current;
+    };
+
+    const pushRoomItem = (room, { suggested = false, depth = 0 } = {}) => {
+      if (placedRooms.has(room.roomId)) return;
+      const item = takeRoom(room);
+      if (!item) return;
+      placedRooms.add(room.roomId);
+      if (!current) startSection(spaceRoom, 'Rooms');
+      const row = {
+        type: 'room',
+        ...item,
+        suggested: Boolean(suggested),
+        depth: Number(depth) || 0,
+      };
+      current.items.push(row);
+      current.rooms.push(item);
+      current.unread += Number(item.unread) || 0;
+    };
+
+    const addSubRooms = (parentRoom, depth) => {
+      if (depth > 6) return;
+      for (const childId of getPaarrotSubRoomIds(parentRoom)) {
+        if (placedRooms.has(childId)) continue;
+        const child = client.getRoom(childId);
+        if (!child || !isJoined(child) || isSpaceLikeRoom(child)) continue;
+        pushRoomItem(child, { depth: depth + 1 });
+        addSubRooms(child, depth + 1);
+      }
+    };
+
+    const walkSpaceChildren = (parentSpace) => {
+      for (const entry of getSpaceChildEntries(parentSpace)) {
+        if (globalSubRoomIds.has(entry.roomId) && !isSpaceLikeRoom(client.getRoom(entry.roomId))) {
+          continue;
+        }
+        const child = client.getRoom(entry.roomId);
+        if (!child || !isJoined(child)) continue;
+        if (isSpaceLikeRoom(child)) {
+          if (placedSections.has(child.roomId)) continue;
+          startSection(child, child.name || child.roomId, { suggested: entry.suggested });
+          walkSpaceChildren(child);
+          continue;
+        }
+        pushRoomItem(child, { suggested: entry.suggested, depth: 0 });
+        addSubRooms(child, 0);
+      }
+    };
+
+    for (const entry of getSpaceChildEntries(spaceRoom)) {
+      const child = client.getRoom(entry.roomId);
       if (!child || !isJoined(child)) continue;
       if (isSpaceLikeRoom(child)) {
-        for (const nestedId of getSpaceChildIds(child)) {
-          const nested = client.getRoom(nestedId);
-          if (!nested || !isJoined(nested) || isSpaceLikeRoom(nested) || seen.has(nested.roomId)) continue;
-          seen.add(nested.roomId);
-          rooms.push(serializeRoom(nested, { isDirect: directIds.has(nested.roomId) }));
-        }
+        if (placedSections.has(child.roomId)) continue;
+        startSection(child, child.name || child.roomId, { suggested: entry.suggested });
+        walkSpaceChildren(child);
         continue;
       }
-      if (seen.has(child.roomId)) continue;
-      seen.add(child.roomId);
-      rooms.push(serializeRoom(child, { isDirect: directIds.has(child.roomId) }));
+      if (globalSubRoomIds.has(child.roomId)) continue;
+      if (!current || current.spaceId !== spaceId) startSection(spaceRoom, 'Rooms');
+      pushRoomItem(child, { suggested: entry.suggested, depth: 0 });
+      addSubRooms(child, 0);
     }
+
+    let pruned = groups.filter(
+      (group) => group.items.length > 0 || group.spaceId === spaceId,
+    );
+
+    // If hierarchy state is thin, still surface joined rooms so Lobby isn't empty.
+    if (!pruned.length && flatRooms.length) {
+      pruned.push({
+        type: 'section',
+        id: `${spaceId}:rooms`,
+        spaceId,
+        name: 'Rooms',
+        unread: flatRooms.reduce((sum, room) => sum + (Number(room.unread) || 0), 0),
+        suggested: false,
+        avatarUrl: roomAvatarPath(spaceId, 48),
+        hasAvatar: Boolean(getRoomAvatarRemote(spaceRoom, 48)),
+        memberCount: spaceRoom.getJoinedMemberCount?.() || 0,
+        items: flatRooms.map((room) => ({ type: 'room', ...room, depth: 0 })),
+        rooms: flatRooms.slice(),
+      });
+    } else if (!pruned.length) {
+      // Keep an empty Rooms section so Lobby can still render Add Room/Space.
+      pruned.push({
+        type: 'section',
+        id: `${spaceId}:rooms`,
+        spaceId,
+        name: 'Rooms',
+        unread: 0,
+        suggested: false,
+        ...sectionMeta(spaceRoom),
+        items: [],
+        rooms: [],
+      });
+    }
+
+    const parents = [...getJoinedParentSpaceIds(spaceRoom)]
+      .filter((id) => id && id !== spaceId && client.getRoom(id))
+      .map((id) => {
+        const parent = client.getRoom(id);
+        return { spaceId: id, name: parent?.name || id };
+      });
+
     return {
-      groups: [],
-      rooms,
-      space: getSpaceSummary(spaceId),
-      parents: [...getJoinedParentSpaceIds(spaceRoom)].filter((id) => client.getRoom(id)),
+      groups: pruned,
+      rooms: flatRooms,
+      parents,
+      space: getSpaceSummary(spaceId) || null,
     };
   }
 
@@ -705,13 +955,9 @@
   function serializeRoom(room, { isDirect = false } = {}) {
     const myUserId = client.getUserId();
     let dmUserId = null;
-    if (isDirect) {
-      const members = room.getJoinedMembers?.() || [];
-      const other = members.find((m) => m.userId !== myUserId);
-      dmUserId = other?.userId || null;
-    }
-    const avatarMxc = room.getMxcAvatarUrl?.() || null;
+    if (isDirect) dmUserId = getDmPeerUserId(room);
     const last = room.getLastLiveEvent?.() || room.getLiveTimeline?.()?.getEvents?.()?.slice(-1)?.[0];
+    const hasAvatar = Boolean(getRoomAvatarRemote(room, 96));
     return {
       roomId: room.roomId,
       name: room.name || room.roomId,
@@ -726,9 +972,9 @@
       online: false,
       alias: room.getCanonicalAlias?.() || null,
       permalink: `https://matrix.to/#/${room.roomId}`,
-      avatarUrl: mxcToHttp(avatarMxc, 96),
-      avatarUrlLg: mxcToHttp(avatarMxc, 256),
-      hasAvatar: Boolean(avatarMxc),
+      avatarUrl: roomAvatarPath(room.roomId, 96),
+      avatarUrlLg: roomAvatarPath(room.roomId, 128, { original: true }),
+      hasAvatar,
       memberCount: room.getJoinedMemberCount?.() || 0,
       pinnedCount: 0,
       voiceMembers: [],
@@ -1135,7 +1381,30 @@
       const userId = String(url.searchParams.get('userId') || client?.getUserId() || '').trim();
       const size = Math.max(16, Math.min(256, Number(url.searchParams.get('size')) || 96));
       if (!client) return errorResponse('Not logged in', 401);
-      const avatar = await fetchAvatarBytes(userId, size);
+      const cacheKey = `profile-avatar:${userId}:${size}`;
+      const cached = readMediaBuffer(cacheKey);
+      const avatar = cached || await fetchAvatarBytes(userId, size);
+      if (!avatar) return errorResponse('No avatar', 404);
+      if (!cached) rememberMediaBuffer(cacheKey, avatar);
+      return new Response(avatar.buffer, {
+        status: 200,
+        headers: {
+          'Content-Type': avatar.contentType || 'image/png',
+          'Cache-Control': 'private, max-age=300',
+        },
+      });
+    }
+
+    const roomAvatarMatch = path.match(/^\/api\/avatar\/(.+)$/);
+    if (roomAvatarMatch && method === 'GET') {
+      if (!client) return errorResponse('Not logged in', 401);
+      const roomId = decodeURIComponent(roomAvatarMatch[1]);
+      const size = Math.max(16, Math.min(256, Number(url.searchParams.get('size')) || 96));
+      const original =
+        url.searchParams.get('original') === '1' ||
+        url.searchParams.get('original') === 'true' ||
+        url.searchParams.get('transparent') === '1';
+      const avatar = await fetchRoomAvatarBuffer(roomId, size, { original });
       if (!avatar) return errorResponse('No avatar', 404);
       return new Response(avatar.buffer, {
         status: 200,
@@ -1275,7 +1544,7 @@
         if (path.endsWith('/members')) return jsonResponse({ members: [] });
         if (path.endsWith('/pins')) return jsonResponse({ pins: [] });
         if (path.endsWith('/threads')) return jsonResponse({ threads: [] });
-        if (path.endsWith('/media')) return jsonResponse({ media: [] });
+        if (path !== '/api/media' && path.endsWith('/media')) return jsonResponse({ media: [] });
         if (path.includes('/embed-filters')) return jsonResponse({ personal: [], room: [] });
         if (path === '/api/voip/config') return jsonResponse({});
         if (path === '/api/voip/ice') return jsonResponse({ iceServers: [] });
@@ -1361,15 +1630,21 @@
   window.EventSource.CLOSED = 2;
 
   function isProxyMediaSrc(src) {
-    return typeof src === 'string' && /^\/api\/(?:profile-avatar|media)(?:\?|$)/.test(src);
+    return typeof src === 'string' && /^\/api\/(?:profile-avatar|media|avatar\/)/.test(src);
   }
 
   async function hydrateMediaNode(node) {
     if (!node) return;
     const imgs = [];
-    if (node.matches?.('img[src^="/api/profile-avatar"], img[src^="/api/media"]')) imgs.push(node);
+    if (node.matches?.('img[src^="/api/profile-avatar"], img[src^="/api/media"], img[src^="/api/avatar/"]')) {
+      imgs.push(node);
+    }
     if (node.querySelectorAll) {
-      imgs.push(...node.querySelectorAll('img[src^="/api/profile-avatar"], img[src^="/api/media"]'));
+      imgs.push(
+        ...node.querySelectorAll(
+          'img[src^="/api/profile-avatar"], img[src^="/api/media"], img[src^="/api/avatar/"]',
+        ),
+      );
     }
     for (const img of imgs) {
       const src = img.getAttribute('src');
@@ -1394,10 +1669,14 @@
 
     const styled = [];
     if (node.nodeType === 1) styled.push(node);
-    if (node.querySelectorAll) styled.push(...node.querySelectorAll('[style*="/api/media"], [style*="/api/profile-avatar"]'));
+    if (node.querySelectorAll) {
+      styled.push(
+        ...node.querySelectorAll('[style*="/api/media"], [style*="/api/profile-avatar"], [style*="/api/avatar/"]'),
+      );
+    }
     for (const el of styled) {
       const bg = el.style?.backgroundImage || '';
-      const match = bg.match(/url\(["']?(\/api\/(?:media|profile-avatar)[^"')]+)["']?\)/);
+      const match = bg.match(/url\(["']?(\/api\/(?:media|profile-avatar|avatar\/)[^"')]+)["']?\)/);
       if (!match) continue;
       const src = match[1];
       if (el.dataset.kitsuBgHydrated === src) continue;
